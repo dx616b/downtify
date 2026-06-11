@@ -34,7 +34,7 @@ Be respectful, constructive, and patient. Reviews focus on code, not on the cont
 
 ## Ways to contribute
 
-- Fixing a bug from the [issues page](https://github.com/henriquesebastiao/downtify/issues).
+- Fixing a bug from the [issues page](https://github.com/dx616b/downtify/issues).
 - Adding a feature that has been discussed and accepted in an issue or discussion.
 - Improving documentation (`README.md`, in-repo docs, or the `zensical` site under `docs/`).
 - Adding or improving tests, especially around the Spotify embed scraping, yt-dlp pipeline, and tag embedding.
@@ -98,16 +98,13 @@ The Python version is pinned in `.python-version`. `uv` will pick it up automati
 git clone https://github.com/<your-username>/downtify.git
 cd downtify
 
-# 2. Add the upstream remote so you can keep your fork up to date
-git remote add upstream https://github.com/henriquesebastiao/downtify.git
-
-# 3. Install Python dependencies (creates .venv via uv)
+# 2. Install Python dependencies (creates .venv via uv)
 uv sync
 
-# 4. Install frontend dependencies
+# 3. Install frontend dependencies
 npm --prefix frontend install
 
-# 5. Copy the example environment file
+# 4. Copy the example environment file
 cp .env.example .env
 ```
 
@@ -296,7 +293,7 @@ Reviews are an exchange. Expect to iterate. Keep responses to review comments fo
 
 ## Reporting bugs and requesting features
 
-- Use the [issues page](https://github.com/henriquesebastiao/downtify/issues) and pick the appropriate template.
+- Use the [issues page](https://github.com/dx616b/downtify/issues) and pick the appropriate template.
 - For bugs, include: Downtify version, deployment method (Docker vs. local), OS, exact reproduction steps, expected vs. actual behavior, and relevant log output. If a specific Spotify URL triggers the bug, include it — the project deliberately uses only public endpoints, so the URL is not sensitive.
 - For feature requests, describe the problem first, then the proposed solution. Features that require Spotify Premium credentials or the Spotify Web API will not be accepted.
 
@@ -316,7 +313,7 @@ Missing keys fall back to English, so partial translations are welcome.
 
 ## Security issues
 
-**Do not open a public GitHub issue for security vulnerabilities.** Email the maintainer privately at **contato@henriquesebastiao.com** with a description of the issue and a reproduction. You will receive an acknowledgement within a reasonable time, and a fix coordinated before public disclosure.
+**Do not open a public GitHub issue for security vulnerabilities.** Use [GitHub private vulnerability reporting](https://github.com/dx616b/downtify/security/advisories/new) on this repository instead.
 
 ---
 

@@ -21,15 +21,15 @@ Drop a Spotify link, get a tagged audio file. No account, no API key, no Premium
 <div class="hero__cta" markdown>
 
 [Get started](getting-started/installation.md){ .md-button .md-button--primary }
-[Source on GitHub](https://github.com/henriquesebastiao/downtify){ .md-button }
+[Source on GitHub](https://github.com/dx616b/downtify){ .md-button }
 
 </div>
 
 <div class="hero__shields" markdown>
 
-[![Release](https://img.shields.io/github/v/release/henriquesebastiao/downtify?color=1AD05C&label=release)](https://github.com/henriquesebastiao/downtify/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/henriquesebastiao/downtify?color=1AD05C)](https://hub.docker.com/r/henriquesebastiao/downtify)
-[![License](https://img.shields.io/github/license/henriquesebastiao/downtify?color=1AD05C)](https://github.com/henriquesebastiao/downtify/blob/main/LICENSE)
+[![Test](https://github.com/dx616b/downtify/actions/workflows/test.yml/badge.svg)](https://github.com/dx616b/downtify/actions/workflows/test.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/dx616b/downtify?color=1AD05C)](https://hub.docker.com/r/dx616b/downtify)
+[![License](https://img.shields.io/github/license/dx616b/downtify?color=1AD05C)](https://github.com/dx616b/downtify/blob/main/LICENSE)
 
 </div>
 
@@ -39,14 +39,14 @@ Drop a Spotify link, get a tagged audio file. No account, no API key, no Premium
 
 ## How it actually works
 
-Spotify's official API gates downloads behind a Premium subscription. Downtify takes the side door instead — it reads the metadata Spotify already exposes on its public embed pages, asks YouTube Music for the closest matching audio, hands the file to `yt-dlp` and `ffmpeg`, and writes proper tags with `mutagen`. The whole pipeline lives in a single Docker container.
+Spotify's official API gates downloads behind a Premium subscription. Downtify takes the side door instead — it reads the metadata Spotify already exposes on its public embed pages, then tries configured audio providers (slskd, YouTube Music, YouTube). Files are tagged with `mutagen` and indexed so playlists are not re-downloaded. The whole pipeline lives in a single Docker container.
 
 <div class="pipeline">
   <div class="pipeline__step"><strong>Spotify embed</strong><br><span>metadata</span></div>
   <div class="pipeline__arrow">→</div>
-  <div class="pipeline__step"><strong>YouTube Music</strong><br><span>audio match</span></div>
+  <div class="pipeline__step"><strong>Audio providers</strong><br><span>slskd · YT Music</span></div>
   <div class="pipeline__arrow">→</div>
-  <div class="pipeline__step"><strong>yt-dlp · ffmpeg · mutagen</strong><br><span>download &amp; tag</span></div>
+  <div class="pipeline__step"><strong>mutagen · index</strong><br><span>tag &amp; dedupe</span></div>
 </div>
 
 </section>
@@ -116,13 +116,17 @@ Spotify's official API gates downloads behind a Premium subscription. Downtify t
 ## One command and you're done
 
 ```bash
-docker run -d -p 8000:8000 --name downtify \
-  -v /path/to/music:/downloads \
+docker pull dx616b/downtify:latest
+
+docker run -d -p 8000:30321 --name downtify \
+  -e DOWNTIFY_PORT=30321 \
+  -v /path/to/music/downloads:/downloads \
+  -v /path/to/music/slskd:/slskd \
   -v downtify_data:/data \
-  ghcr.io/henriquesebastiao/downtify
+  dx616b/downtify:latest
 ```
 
-Open [`localhost:8000`](http://localhost:8000), paste a link, hit download. Files land in `/path/to/music` with the tags already in place.
+Open [`localhost:8000`](http://localhost:8000), paste a link, hit download. Files land in your mounted folders with tags already in place.
 
 [Installation guide](getting-started/installation.md){ .md-button .md-button--primary }
 [Docker Compose](getting-started/docker-compose.md){ .md-button }

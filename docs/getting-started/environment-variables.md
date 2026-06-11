@@ -33,14 +33,15 @@ YouTube periodically challenges automated downloaders. These variables give you 
 ```yaml
 services:
   downtify:
-    image: ghcr.io/henriquesebastiao/downtify:latest
+    image: dx616b/downtify:latest
     ports:
-      - '8000:8000'
+      - '8000:30321'
     volumes:
       - ./downloads:/downloads
       - downtify_data:/data
       - ./cookies.txt:/cookies.txt:ro
     environment:
+      - DOWNTIFY_PORT=30321
       - DOWNTIFY_FORCE_IPV4=1
       - DOWNTIFY_COOKIES_FILE=/cookies.txt
     restart: unless-stopped

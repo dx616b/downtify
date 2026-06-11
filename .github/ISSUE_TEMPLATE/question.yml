@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before opening a question, please check the [README](https://github.com/henriquesebastiao/downtify#readme) and existing issues — your answer may already be there.
+        Before opening a question, please check the [README](https://github.com/dx616b/downtify#readme) and existing issues — your answer may already be there.
 
   - type: textarea
     id: question
@@ -29,7 +29,7 @@ body:
       label: Downtify Version
       description: |
         Which version of Downtify are you running? Run:
-        `docker inspect henriquesebastiao/downtify --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
+        `docker inspect dx616b/downtify:latest --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
       placeholder: "e.g. 2.5.0"
     validations:
       required: false

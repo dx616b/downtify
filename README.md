@@ -15,10 +15,10 @@
 <div align="center">
 
 [![Test](https://github.com/dx616b/downtify/actions/workflows/test.yml/badge.svg)](https://github.com/dx616b/downtify/actions/workflows/test.yml)
-[![GitHub License](https://img.shields.io/github/license/henriquesebastiao/downtify?color=blue)](/LICENSE)
-[![Docker Pulls](https://img.shields.io/docker/pulls/dx616b/spoti-to-navidrome?color=blue)](https://hub.docker.com/r/dx616b/spoti-to-navidrome)
+[![GitHub License](https://img.shields.io/github/license/dx616b/downtify?color=blue)](/LICENSE)
+[![Docker Pulls](https://img.shields.io/docker/pulls/dx616b/downtify?color=blue)](https://hub.docker.com/r/dx616b/downtify)
 
-Fork of [henriquesebastiao/downtify](https://github.com/henriquesebastiao/downtify) · Docker image `dx616b/spoti-to-navidrome`
+Docker image: [`dx616b/downtify`](https://hub.docker.com/r/dx616b/downtify)
 
 </div>
 
@@ -60,14 +60,14 @@ It resolves track metadata from Spotify's public embed pages, then tries your co
 ## 🚀 Quick Start
 
 ```bash
-docker pull dx616b/spoti-to-navidrome:latest
+docker pull dx616b/downtify:latest
 
 docker run -d -p 8000:30321 --name downtify \
   -e DOWNTIFY_PORT=30321 \
   -v /path/to/music/downloads:/downloads \
   -v /path/to/music/slskd:/slskd \
   -v downtify_data:/data \
-  dx616b/spoti-to-navidrome:latest
+  dx616b/downtify:latest
 ```
 
 Open [http://localhost:8000](http://localhost:8000), paste a Spotify link, and hit download.
@@ -363,4 +363,4 @@ Issues and PRs welcome on [dx616b/downtify](https://github.com/dx616b/downtify).
 
 ## 📄 License
 
-Licensed under the [GPL-3.0](https://github.com/henriquesebastiao/downtify?tab=GPL-3.0-1-ov-file#readme) License.
+Licensed under the [GPL-3.0](./LICENSE) License.

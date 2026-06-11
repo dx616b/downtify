@@ -9,19 +9,19 @@ RUN pip install --upgrade pip && \
 
 FROM python:3.13-alpine
 
-LABEL maintainer="Henrique Sebastião <contato@henriquesebastiao.com>"
+LABEL maintainer="dx616b"
 LABEL version="2.8.0"
-LABEL description="Self-hosted Spotify downloader"
+LABEL description="Self-hosted Spotify downloader with slskd and Navidrome sync"
 
 LABEL org.opencontainers.image.title="Downtify" \
-      org.opencontainers.image.description="Download your Spotify playlists and songs along with album art and metadata in a self-hosted way via Docker." \
+      org.opencontainers.image.description="Self-hosted Spotify downloader with slskd and Navidrome sync." \
       org.opencontainers.image.version="2.8.0" \
-      org.opencontainers.image.authors="Henrique Sebastião <contato@henriquesebastiao.com>" \
-      org.opencontainers.image.url="https://github.com/henriquesebastiao/downtify" \
-      org.opencontainers.image.source="https://github.com/henriquesebastiao/downtify" \
+      org.opencontainers.image.authors="dx616b" \
+      org.opencontainers.image.url="https://github.com/dx616b/downtify" \
+      org.opencontainers.image.source="https://github.com/dx616b/downtify" \
       org.opencontainers.image.licenses="GPL-3.0" \
-      org.opencontainers.image.documentation="https://github.com/henriquesebastiao/downtify#readme" \
-      org.opencontainers.image.vendor="Henrique Sebastião" \
+      org.opencontainers.image.documentation="https://github.com/dx616b/downtify#readme" \
+      org.opencontainers.image.vendor="dx616b" \
       org.opencontainers.image.base.name="python:3.13-alpine"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

@@ -25,7 +25,7 @@ Or create a minimal `docker-compose.yml` manually:
 services:
   downtify:
     container_name: downtify
-    image: ghcr.io/henriquesebastiao/downtify:latest
+    image: dx616b/downtify:latest
     ports:
       - '8000:30321'
     environment:
@@ -67,7 +67,7 @@ If port 8000 is already in use, map a different host port and set the `DOWNTIFY_
 ```yaml
 services:
   downtify:
-    image: ghcr.io/henriquesebastiao/downtify:latest
+    image: dx616b/downtify:latest
     ports:
       - '9090:30321'
     environment:
@@ -85,7 +85,7 @@ Some ISPs and corporate networks block YouTube. Adding explicit DNS resolvers im
 ```yaml
 services:
   downtify:
-    image: ghcr.io/henriquesebastiao/downtify:latest
+    image: dx616b/downtify:latest
     ports:
       - '8000:8000'
     volumes:

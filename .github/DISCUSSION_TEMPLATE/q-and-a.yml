@@ -4,9 +4,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Have a question about setting up or using Downtify? Ask here and the community or maintainers will help. For confirmed bugs, please open an [issue](https://github.com/henriquesebastiao/downtify/issues/new/choose) instead.
+        Have a question about setting up or using Downtify? Ask here and the community or maintainers will help. For confirmed bugs, please open an [issue](https://github.com/dx616b/downtify/issues/new/choose) instead.
 
-        Before posting, check the [README](https://github.com/henriquesebastiao/downtify#readme) and search existing discussions — your answer may already be there.
+        Before posting, check the [README](https://github.com/dx616b/downtify#readme) and search existing discussions — your answer may already be there.
 
   - type: textarea
     id: question
@@ -30,7 +30,7 @@ body:
       label: Downtify Version
       description: |
         Which version are you running? Run:
-        `docker inspect henriquesebastiao/downtify --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
+        `docker inspect dx616b/downtify:latest --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
       placeholder: "e.g. 2.5.0"
     validations:
       required: false

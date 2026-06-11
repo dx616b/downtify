@@ -13,16 +13,20 @@ The quickest way to run Downtify is with a single `docker run` command. No Pytho
 ## Docker run
 
 ```bash
+docker pull dx616b/downtify:latest
+
 docker run -d \
   --name downtify \
-  -p 8000:8000 \
-  -v /path/to/music:/downloads \
+  -p 8000:30321 \
+  -e DOWNTIFY_PORT=30321 \
+  -v /path/to/music/downloads:/downloads \
+  -v /path/to/music/slskd:/slskd \
   -v downtify_data:/data \
   --restart unless-stopped \
-  ghcr.io/henriquesebastiao/downtify
+  dx616b/downtify:latest
 ```
 
-Replace `/path/to/music` with the directory where you want your music saved.
+Replace `/path/to/music/downloads` and `/path/to/music/slskd` with your library paths. Omit the `/slskd` mount if you only use YouTube.
 
 Once the container starts, open **[http://localhost:8000](http://localhost:8000)** in your browser.
 
@@ -31,9 +35,10 @@ Once the container starts, open **[http://localhost:8000](http://localhost:8000)
 | Volume | Purpose |
 |--------|---------|
 | `/downloads` | Downloaded audio files |
+| `/slskd` | Optional shared Soulseek folder (when using slskd) |
 | `/data` | Application database and persistent settings |
 
-Both volumes persist across container restarts and upgrades. The `/downloads` volume can be any directory on your host machine or a named Docker volume.
+Volumes persist across container restarts and upgrades.
 
 ## Custom port
 
@@ -42,10 +47,12 @@ To expose Downtify on a different host port, change the left side of `-p`:
 ```bash
 docker run -d \
   --name downtify \
-  -p 9090:8000 \           # host:container
-  -v /path/to/music:/downloads \
+  -p 9090:30321 \
+  -e DOWNTIFY_PORT=30321 \
+  -v /path/to/music/downloads:/downloads \
   -v downtify_data:/data \
-  ghcr.io/henriquesebastiao/downtify
+  --restart unless-stopped \
+  dx616b/downtify:latest
 ```
 
 Then open **[http://localhost:9090](http://localhost:9090)**.
@@ -55,13 +62,14 @@ Then open **[http://localhost:9090](http://localhost:9090)**.
 Pull the latest image and recreate the container:
 
 ```bash
-docker pull ghcr.io/henriquesebastiao/downtify
+docker pull dx616b/downtify:latest
 docker stop downtify && docker rm downtify
-docker run -d --name downtify -p 8000:8000 \
-  -v /path/to/music:/downloads \
+docker run -d --name downtify -p 8000:30321 \
+  -e DOWNTIFY_PORT=30321 \
+  -v /path/to/music/downloads:/downloads \
   -v downtify_data:/data \
   --restart unless-stopped \
-  ghcr.io/henriquesebastiao/downtify
+  dx616b/downtify:latest
 ```
 
 Your music and settings are preserved in the volumes.

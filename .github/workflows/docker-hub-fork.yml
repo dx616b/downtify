@@ -1,4 +1,4 @@
-# Build and push dx616b/spoti-to-navidrome on main (fork deploy image).
+# Build and push dx616b/downtify on main (fork deploy image).
 name: Docker Hub (fork)
 
 on:
@@ -29,7 +29,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: dx616b/spoti-to-navidrome
+          images: dx616b/downtify
+          annotations: |
+            type=org.opencontainers.image.description,value=Self-hosted Spotify downloader with slskd and Navidrome sync
+            type=org.opencontainers.image.url,value=https://github.com/dx616b/downtify
+            type=org.opencontainers.image.source,value=https://github.com/dx616b/downtify
+            type=org.opencontainers.image.documentation,value=https://github.com/dx616b/downtify#readme
           tags: |
             type=raw,value=latest
             type=raw,value=slskd-dev

@@ -56,8 +56,8 @@ jobs:
           context: .
           push: true
           tags: |
-            dx616b/spoti-to-navidrome:latest
-            dx616b/spoti-to-navidrome:${{ steps.version.outputs.VERSION }}
+            dx616b/downtify:latest
+            dx616b/downtify:${{ steps.version.outputs.VERSION }}
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
           platforms: linux/amd64,linux/arm64
