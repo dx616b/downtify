@@ -182,10 +182,16 @@ export default {
     active: 'Ativa',
     paused: 'Pausada',
     everyInterval: 'A cada {interval}',
+    everyIntervalAt: 'A cada {interval} às {time}',
+    everyIntervalWhileComplete: 'A cada {interval} enquanto completa',
+    everyIntervalAtWhileComplete:
+      'A cada {interval} às {time} enquanto completa',
     checked: 'Verificada {when}',
     notChecked: 'Ainda não verificada',
     checkNow: 'Verificar agora',
-    info: 'O monitoramento automático atualiza a playlist no Spotify e enfileira faixas que ainda não estão na biblioteca. Use Baixar faltantes para repetir falhas na hora.',
+    checkTimeHint:
+      'Horário do dia para verificações diárias ou mais longas — usa o fuso local do seu navegador.',
+    info: 'O monitoramento automático atualiza a playlist no Spotify e enfileira faixas que ainda não estão na biblioteca. Quando tudo já está na biblioteca, as verificações passam a ser semanais até faltar algo de novo. Em intervalos diários ou maiores você pode escolher um horário. Use Baixar faltantes para repetir falhas na hora.',
     every15: 'A cada 15 min',
     every30: 'A cada 30 min',
     every1h: 'A cada hora',
