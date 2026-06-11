@@ -148,6 +148,22 @@ function listDownloads(forceRefresh = false) {
   })
 }
 
+function listDownloadsPage({
+  page = 1,
+  limit = 25,
+  q = '',
+  playlist = '',
+  refresh = false,
+} = {}) {
+  const params = { page, limit }
+  const query = String(q || '').trim()
+  const pl = String(playlist || '').trim()
+  if (query) params.q = query
+  if (pl) params.playlist = pl
+  if (refresh) params.refresh = true
+  return API.get('/list', { params })
+}
+
 function deleteDownload(file) {
   return API.delete('/delete', { params: { file } })
 }
@@ -230,6 +246,7 @@ export default {
   downloadSaveName,
   coverFileURL,
   listDownloads,
+  listDownloadsPage,
   deleteDownload,
   deleteDownloadsBatch,
   deleteLibraryPlaylist,

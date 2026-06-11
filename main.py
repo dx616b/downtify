@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -42,11 +42,21 @@ from downtify.library_catalog import (
     LibraryContext,
     library_context_from_state,
     list_library_entries,
+    list_library_entries_page,
     resolve_library_file,
+    scan_library_paths,
 )
 from downtify.library_delete import delete_library_file
 from downtify.library_metadata_cache import LibraryMetadataCache
-from downtify.library_paths_cache import invalidate_library_paths_cache
+from downtify.library_paths_cache import (
+    request_paths_rescan,
+    set_paths_rescan_callback,
+)
+from downtify.library_paths_scanner import (
+    library_paths_scan_loop,
+    library_paths_scan_running,
+    schedule_library_paths_rescan,
+)
 from downtify.library_reconcile import refresh_playlists_after_moves
 from downtify.monitor import PlaylistMonitorDB, monitor_loop
 from downtify.navidrome_index import NavidromeIndex
@@ -150,6 +160,17 @@ class LibraryListEntry(BaseModel):
     playlists: list[str] = Field(default_factory=list)
 
 
+class LibraryListPage(BaseModel):
+    """Paginated ``GET /list`` response."""
+
+    items: list[LibraryListEntry]
+    total: int
+    page: int
+    limit: int
+    paths_scanning: bool = False
+    playlist_names: list[str] = Field(default_factory=list)
+
+
 async def _application_startup() -> None:
     loop = asyncio.get_running_loop()
     api.state.loop = loop
@@ -202,6 +223,29 @@ async def _application_startup() -> None:
                 )
     except Exception:
         logger.exception('Playlist batch sync from library failed')
+
+    def _library_ctx() -> LibraryContext:
+        return library_context_from_state(
+            DOWNLOAD_DIR,
+            api.state.settings,
+            api.state.track_index,
+            metadata_cache=api.state.metadata_cache,
+            playlist_catalog=api.state.playlist_catalog,
+        )
+
+    async def _rescan_library_paths() -> None:
+        await schedule_library_paths_rescan(_library_ctx(), scan_library_paths)
+
+    def _schedule_library_paths_rescan() -> None:
+        asyncio.create_task(_rescan_library_paths())
+
+    api.state.schedule_library_paths_rescan = _schedule_library_paths_rescan
+    set_paths_rescan_callback(_schedule_library_paths_rescan)
+    _schedule_library_paths_rescan()
+    asyncio.create_task(
+        library_paths_scan_loop(_library_ctx, scan_library_paths)
+    )
+
     asyncio.create_task(
         monitor_loop(
             db=api.state.monitor_db,
@@ -285,12 +329,57 @@ def build_app() -> FastAPI:
             playlist_catalog=api.state.playlist_catalog,
         )
 
-    @app.get('/list', response_model=list[LibraryListEntry])
-    def list_downloads(refresh: bool = False) -> list[LibraryListEntry]:
+    def _playlist_names_for_library() -> list[str]:
+        catalog = api.state.playlist_catalog
+        if catalog is None:
+            return []
+        return catalog.list_playlist_names()
+
+    @app.get('/list')
+    async def list_downloads(
+        refresh: bool = False,
+        page: int | None = Query(default=None, ge=1),
+        limit: int = Query(default=25, ge=1, le=200),
+        q: str = Query(default=''),
+        playlist: str = Query(default=''),
+    ) -> list[LibraryListEntry] | LibraryListPage:
+        ctx = _library_ctx()
         if refresh:
-            invalidate_library_paths_cache()
-        rows = list_library_entries(_library_ctx())
-        return [LibraryListEntry.model_validate(row) for row in rows]
+            request_paths_rescan(ctx)
+            schedule = getattr(
+                api.state, 'schedule_library_paths_rescan', None
+            )
+            if callable(schedule):
+                schedule()
+
+        if page is not None:
+
+            def _page() -> LibraryListPage:
+                rows, total = list_library_entries_page(
+                    ctx,
+                    page=page,
+                    limit=limit,
+                    query=q,
+                    playlist=playlist,
+                )
+                return LibraryListPage(
+                    items=[
+                        LibraryListEntry.model_validate(row) for row in rows
+                    ],
+                    total=total,
+                    page=page,
+                    limit=limit,
+                    paths_scanning=library_paths_scan_running(ctx),
+                    playlist_names=_playlist_names_for_library(),
+                )
+
+            return await asyncio.to_thread(_page)
+
+        def _all() -> list[LibraryListEntry]:
+            rows = list_library_entries(ctx)
+            return [LibraryListEntry.model_validate(row) for row in rows]
+
+        return await asyncio.to_thread(_all)
 
     @app.get('/media/{file_path:path}')
     def serve_media(file_path: str) -> FileResponse:
@@ -339,15 +428,20 @@ def build_app() -> FastAPI:
 
     @app.delete('/delete')
     async def delete_download(file: str) -> dict:
-        result = delete_library_file(
-            file,
-            _library_ctx(),
-            cover_cache=api.state.cover_cache,
-            metadata_cache=api.state.metadata_cache,
-            playlist_catalog=api.state.playlist_catalog,
-            track_index=api.state.track_index,
-            navidrome_index=api.state.navidrome_index,
-        )
+        ctx = _library_ctx()
+
+        def _run() -> dict:
+            return delete_library_file(
+                file,
+                ctx,
+                cover_cache=api.state.cover_cache,
+                metadata_cache=api.state.metadata_cache,
+                playlist_catalog=api.state.playlist_catalog,
+                track_index=api.state.track_index,
+                navidrome_index=api.state.navidrome_index,
+            )
+
+        result = await asyncio.to_thread(_run)
         if not result.get('deleted'):
             return {
                 'deleted': False,
@@ -363,39 +457,44 @@ def build_app() -> FastAPI:
         }
 
     @app.get('/cover')
-    def get_cover(file: str):
-        full = resolve_library_file(file, _library_ctx())
-        if full is None:
-            raise HTTPException(status_code=404, detail='File not found')
+    async def get_cover(file: str):
+        ctx = _library_ctx()
 
-        data: bytes | None = None
-        mime: str | None = None
-        if api.state.settings.get('cache_cover_art'):
-            cache = api.state.cover_cache
-            if cache is not None:
-                hit = cache.lookup(file, full)
-                if hit is not None:
-                    data, mime = hit
-        if data is None:
-            data, mime = extract_cover_art(full)
-            if data is None:
-                return Response(
-                    content=_TRANSPARENT_GIF,
-                    media_type='image/gif',
-                    headers={'Cache-Control': 'public, max-age=3600'},
-                )
+        def _load() -> Response:
+            full = resolve_library_file(file, ctx)
+            if full is None:
+                raise HTTPException(status_code=404, detail='File not found')
+
+            data: bytes | None = None
+            mime: str | None = None
             if api.state.settings.get('cache_cover_art'):
                 cache = api.state.cover_cache
                 if cache is not None:
-                    cache.store(file, full, data, mime or 'image/jpeg')
-        return Response(
-            content=data,
-            media_type=mime or 'image/jpeg',
-            headers={
-                'Cache-Control': 'public, max-age=86400',
-                'ETag': f'"{int(full.stat().st_mtime)}"',
-            },
-        )
+                    hit = cache.lookup(file, full)
+                    if hit is not None:
+                        data, mime = hit
+            if data is None:
+                data, mime = extract_cover_art(full)
+                if data is None:
+                    return Response(
+                        content=_TRANSPARENT_GIF,
+                        media_type='image/gif',
+                        headers={'Cache-Control': 'public, max-age=3600'},
+                    )
+                if api.state.settings.get('cache_cover_art'):
+                    cache = api.state.cover_cache
+                    if cache is not None:
+                        cache.store(file, full, data, mime or 'image/jpeg')
+            return Response(
+                content=data,
+                media_type=mime or 'image/jpeg',
+                headers={
+                    'Cache-Control': 'public, max-age=86400',
+                    'ETag': f'"{int(full.stat().st_mtime)}"',
+                },
+            )
+
+        return await asyncio.to_thread(_load)
 
     app.mount(
         '/downloads',

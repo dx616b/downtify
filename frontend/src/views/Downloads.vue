@@ -28,7 +28,7 @@
             {{ t('library.deleteSelected', { count: selectedCount }) }}
           </button>
           <button
-            v-if="filteredFiles.length > 0"
+            v-if="totalItems > 0"
             class="btn btn-primary btn-sm h-11 px-5 rounded-full"
             @click="playAll"
             :title="t('library.play')"
@@ -75,9 +75,16 @@
         </button>
       </div>
 
+      <p
+        v-if="pathsScanning"
+        class="mb-3 text-xs text-base-content/50 text-center"
+      >
+        {{ t('library.pathsScanning') }}
+      </p>
+
       <!-- Playlist filter + bulk selection -->
       <div
-        v-if="files.length > 0"
+        v-if="totalItems > 0"
         class="mb-4 flex flex-wrap items-center gap-2"
       >
         <label class="text-xs text-base-content/50 shrink-0">
@@ -103,17 +110,15 @@
         </button>
         <span class="flex-1" />
         <button
-          v-if="filteredFiles.length > 0"
+          v-if="paginatedFiles.length > 0"
           type="button"
           class="btn btn-ghost btn-xs rounded-full"
-          @click="toggleSelectAllFiltered"
+          @click="toggleSelectAllPage"
         >
           {{
-            allFilteredSelected
+            allPageSelected
               ? t('library.clearSelection')
-              : t('library.selectAllFilteredCount', {
-                  count: filteredFiles.length,
-                })
+              : t('library.selectAllFiltered')
           }}
         </button>
       </div>
@@ -132,9 +137,27 @@
         <div v-for="n in 4" :key="n" class="skeleton h-16 rounded-2xl" />
       </div>
 
+      <!-- No search matches -->
+      <div
+        v-else-if="
+          !loading &&
+          totalItems === 0 &&
+          (libraryFilterQuery.trim() || playlistFilter)
+        "
+        class="surface rounded-2xl p-12 flex flex-col items-center text-center"
+      >
+        <Icon
+          icon="clarity:search-line"
+          class="h-12 w-12 text-base-content/20 mb-4"
+        />
+        <p class="text-base-content/50 text-sm">
+          {{ t('library.searchNoResults') }}
+        </p>
+      </div>
+
       <!-- Empty library -->
       <div
-        v-else-if="files.length === 0"
+        v-else-if="!loading && totalItems === 0"
         class="surface rounded-2xl p-12 flex flex-col items-center text-center"
       >
         <Icon
@@ -144,20 +167,6 @@
         <p class="text-base-content/50 text-sm">{{ t('library.empty') }}</p>
         <p class="text-base-content/40 text-xs mt-1">
           {{ t('library.emptyHint') }}
-        </p>
-      </div>
-
-      <!-- No search matches -->
-      <div
-        v-else-if="filteredFiles.length === 0"
-        class="surface rounded-2xl p-12 flex flex-col items-center text-center"
-      >
-        <Icon
-          icon="clarity:search-line"
-          class="h-12 w-12 text-base-content/20 mb-4"
-        />
-        <p class="text-base-content/50 text-sm">
-          {{ t('library.searchNoResults') }}
         </p>
       </div>
 
@@ -261,33 +270,33 @@
       </ul>
 
       <LibraryPagination
-        v-if="filteredFiles.length > 0"
+        v-if="totalItems > 0"
         :current-page="currentPage"
         :total-pages="totalPages"
-        :total-items="filteredFiles.length"
+        :total-items="totalItems"
         :page-size="pageSize"
-        @update:current-page="currentPage = $event"
+        @update:current-page="onPageChange"
         @update:page-size="onPageSizeChange"
       />
 
       <!-- Count footer -->
       <p
-        v-if="files.length > 0"
+        v-if="totalItems > 0"
         class="mt-4 text-xs text-base-content/40 text-center"
       >
-        <template v-if="libraryFilterQuery.trim()">
+        <template v-if="libraryFilterQuery.trim() || playlistFilter">
           {{
             t('library.filteredCount', {
-              shown: filteredFiles.length,
-              total: files.length,
+              shown: paginatedFiles.length,
+              total: totalItems,
             })
           }}
         </template>
         <template v-else>
           {{
-            files.length === 1
-              ? t('library.countOne', { count: files.length })
-              : t('library.countMany', { count: files.length })
+            totalItems === 1
+              ? t('library.countOne', { count: totalItems })
+              : t('library.countMany', { count: totalItems })
           }}
         </template>
       </p>
@@ -305,10 +314,7 @@ import Settings from '/src/components/Settings.vue'
 import LibraryPagination from '/src/components/LibraryPagination.vue'
 import API from '/src/model/api'
 import { useI18n } from '/src/i18n'
-import {
-  useLibraryFilter,
-  libraryEntryMatchesQuery,
-} from '/src/model/libraryFilter'
+import { useLibraryFilter } from '/src/model/libraryFilter'
 import {
   normalizeLibraryEntry,
   savePlayerViewPrefs,
@@ -324,6 +330,7 @@ const router = useRouter()
 const { libraryFilterQuery, clearLibraryFilter } = useLibraryFilter()
 
 const files = ref([])
+const totalItems = ref(0)
 const loading = ref(false)
 const error = ref('')
 const deleting = ref({})
@@ -334,56 +341,31 @@ const currentPage = ref(1)
 const pageSize = ref(readPageSize())
 const selectedFiles = ref(new Set())
 const playlistFilter = ref('')
+const playlistNames = ref([])
+const pathsScanning = ref(false)
+let filterDebounce = null
 
-const playlistNames = computed(() => {
-  const names = new Set()
-  for (const entry of files.value) {
-    for (const pl of entry.playlists || []) {
-      if (pl) names.add(pl)
-    }
-  }
-  return [...names].sort((a, b) => a.localeCompare(b))
-})
-
-const filteredFiles = computed(() => {
-  let list = files.value
-  const pl = String(playlistFilter.value || '').trim()
-  if (pl) {
-    list = list.filter((entry) => (entry.playlists || []).includes(pl))
-  }
-  const query = libraryFilterQuery.value
-  if (!String(query || '').trim()) return list
-  return list.filter((entry) => libraryEntryMatchesQuery(entry, query))
-})
+const paginatedFiles = computed(() => files.value)
 
 const selectedCount = computed(() => selectedFiles.value.size)
 
-const allFilteredSelected = computed(() => {
-  if (!filteredFiles.value.length) return false
-  return filteredFiles.value.every((e) => selectedFiles.value.has(e.file))
+const allPageSelected = computed(() => {
+  if (!paginatedFiles.value.length) return false
+  return paginatedFiles.value.every((e) => selectedFiles.value.has(e.file))
 })
 
 const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredFiles.value.length / pageSize.value))
+  Math.max(1, Math.ceil(totalItems.value / pageSize.value))
 )
 
-const paginatedFiles = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredFiles.value.slice(start, start + pageSize.value)
-})
-
-watch([filteredFiles, pageSize], () => {
-  if (currentPage.value > totalPages.value) {
-    currentPage.value = totalPages.value
-  }
-})
-
-watch(libraryFilterQuery, () => {
+watch([libraryFilterQuery, playlistFilter], () => {
   currentPage.value = 1
+  scheduleLoad()
 })
 
-watch(playlistFilter, () => {
+watch(pageSize, () => {
   currentPage.value = 1
+  loadPage()
 })
 
 function toggleSelect(file) {
@@ -393,17 +375,18 @@ function toggleSelect(file) {
   selectedFiles.value = next
 }
 
-function toggleSelectAllFiltered() {
-  if (allFilteredSelected.value) {
+function toggleSelectAllPage() {
+  if (allPageSelected.value) {
     selectedFiles.value = new Set()
     return
   }
-  selectedFiles.value = new Set(filteredFiles.value.map((entry) => entry.file))
+  selectedFiles.value = new Set(paginatedFiles.value.map((entry) => entry.file))
 }
 
 function removeFilesFromList(paths) {
   const gone = new Set(paths)
   files.value = files.value.filter((entry) => !gone.has(entry.file))
+  totalItems.value = Math.max(0, totalItems.value - gone.size)
   const next = new Set(selectedFiles.value)
   for (const p of gone) next.delete(p)
   selectedFiles.value = next
@@ -437,17 +420,73 @@ function markCoverFailed(file) {
   coverFailed.value = { ...coverFailed.value, [file]: true }
 }
 
-async function refresh() {
+function scheduleLoad() {
+  if (filterDebounce) clearTimeout(filterDebounce)
+  filterDebounce = setTimeout(() => {
+    filterDebounce = null
+    loadPage()
+  }, 300)
+}
+
+function onPageChange(page) {
+  currentPage.value = page
+  loadPage()
+}
+
+async function loadPage({ refresh = false } = {}) {
   loading.value = true
   error.value = ''
   try {
-    const res = await API.listDownloads(true)
-    files.value = (res.data || []).map(normalizeLibraryEntry)
+    const res = await API.listDownloadsPage({
+      page: currentPage.value,
+      limit: pageSize.value,
+      q: libraryFilterQuery.value,
+      playlist: playlistFilter.value,
+      refresh,
+    })
+    const data = res.data || {}
+    files.value = (data.items || []).map(normalizeLibraryEntry)
+    totalItems.value = Number(data.total) || 0
+    pathsScanning.value = Boolean(data.paths_scanning)
+    if (Array.isArray(data.playlist_names) && data.playlist_names.length) {
+      playlistNames.value = data.playlist_names
+    }
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value
+      if (currentPage.value >= 1) {
+        await loadPage({ refresh: false })
+      }
+    }
   } catch {
     error.value = t('library.failedLoad')
   } finally {
     loading.value = false
   }
+}
+
+async function refresh() {
+  currentPage.value = 1
+  await loadPage({ refresh: true })
+}
+
+async function fetchAllFilteredEntries() {
+  const items = []
+  let page = 1
+  let total = 1
+  while (items.length < total) {
+    const res = await API.listDownloadsPage({
+      page,
+      limit: 200,
+      q: libraryFilterQuery.value,
+      playlist: playlistFilter.value,
+    })
+    const data = res.data || {}
+    items.push(...(data.items || []).map(normalizeLibraryEntry))
+    total = Number(data.total) || items.length
+    page += 1
+    if (page > 100) break
+  }
+  return items
 }
 
 async function onDelete(file) {
@@ -510,11 +549,9 @@ async function onDeletePlaylist() {
   try {
     const res = await API.deleteLibraryPlaylist(name)
     const count = res.data?.deleted_count ?? 0
-    files.value = files.value.filter(
-      (entry) => !(entry.playlists || []).includes(name)
-    )
     selectedFiles.value = new Set()
     playlistFilter.value = ''
+    await loadPage()
     if ((res.data?.failed_count || 0) > 0) {
       error.value = t('library.batchDeletePartial', {
         ok: count,
@@ -549,22 +586,24 @@ function persistPlayerViewForPlayback() {
   })
 }
 
-function playEntry(entry) {
-  const index = filteredFiles.value.findIndex((row) => row.file === entry.file)
+async function playEntry(entry) {
+  const tracks = await fetchAllFilteredEntries()
+  const index = tracks.findIndex((row) => row.file === entry.file)
   if (index < 0) return
   persistPlayerViewForPlayback()
-  player.setPlaylist(filteredFiles.value, { startIndex: index, autoplay: true })
+  player.setPlaylist(tracks, { startIndex: index, autoplay: true })
   router.push({ name: 'Player' })
 }
 
-function playAll() {
-  if (!filteredFiles.value.length) return
+async function playAll() {
+  const tracks = await fetchAllFilteredEntries()
+  if (!tracks.length) return
   persistPlayerViewForPlayback()
-  player.setPlaylist(filteredFiles.value, { startIndex: 0, autoplay: true })
+  player.setPlaylist(tracks, { startIndex: 0, autoplay: true })
   router.push({ name: 'Player' })
 }
 
-onMounted(refresh)
+onMounted(() => loadPage())
 
 onUnmounted(() => {
   clearLibraryFilter()

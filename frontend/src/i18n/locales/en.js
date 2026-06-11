@@ -167,6 +167,8 @@ export default {
       'Delete all tracks in "{name}"? Files on disk and the playlist catalog entry are removed. M3U and Navidrome sync run in the background.',
     playlistDeleted: 'Playlist "{name}" removed ({count} tracks).',
     playlistDeleteFailed: 'Could not delete playlist "{name}".',
+    pathsScanning:
+      'Scanning for new files in the background. The list may update shortly.',
   },
   monitor: {
     title: 'Playlist Monitor',

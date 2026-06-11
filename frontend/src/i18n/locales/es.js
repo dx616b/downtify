@@ -172,6 +172,8 @@ export default {
       '¿Eliminar todas las pistas de "{name}"? Se quitan archivos y la entrada del catálogo. M3U y Navidrome se actualizan en segundo plano.',
     playlistDeleted: 'Lista "{name}" eliminada ({count} pistas).',
     playlistDeleteFailed: 'No se pudo eliminar la lista "{name}".',
+    pathsScanning:
+      'Buscando archivos nuevos en segundo plano. La lista puede actualizarse pronto.',
   },
   monitor: {
     title: 'Monitor de listas',
