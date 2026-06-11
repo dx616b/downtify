@@ -2866,6 +2866,8 @@ async def upsert_monitor_playlist(request: Request) -> dict[str, Any]:
             reschedule=_monitor_schedule_changed(payload),
         )
         kwargs['name'] = name
+        if 'interval_minutes' in payload:
+            kwargs['preferred_interval_minutes'] = interval_minutes
         updated = await asyncio.to_thread(
             db.update_playlist,
             existing.id,
@@ -2901,11 +2903,13 @@ async def upsert_monitor_playlist(request: Request) -> dict[str, Any]:
         interval_minutes,
         check_at_minutes,
         check_timezone,
+        interval_minutes,
     )
     scheduled = await asyncio.to_thread(
         db.update_playlist,
         playlist.id,
         last_checked=schedule_anchor_iso(interval_minutes, check_at_minutes),
+        preferred_interval_minutes=interval_minutes,
     )
     return (scheduled or playlist).to_dict()
 
@@ -2948,6 +2952,7 @@ async def update_monitor_playlist(
         kwargs['enabled'] = enabled
     if 'interval_minutes' in payload:
         kwargs['interval_minutes'] = interval_minutes
+        kwargs['preferred_interval_minutes'] = interval_minutes
 
     updated = await asyncio.to_thread(
         db.update_playlist, playlist_id, **kwargs

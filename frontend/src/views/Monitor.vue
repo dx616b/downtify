@@ -130,7 +130,7 @@
               </select>
 
               <input
-                v-if="usesCheckTime(scheduleFor(pl).interval_minutes)"
+                v-if="usesCheckTime(activeInterval(pl))"
                 type="time"
                 class="filter-select-xs w-[5.5rem]"
                 :value="scheduleFor(pl).check_time"
@@ -223,13 +223,29 @@ function usesCheckTime(intervalMinutes) {
   return intervalMinutes >= CALENDAR_INTERVAL_MINUTES
 }
 
+function activeInterval(pl) {
+  return pl.monitor?.interval_minutes ?? 60
+}
+
+function preferredInterval(pl) {
+  const sid = pl.spotify_playlist_id
+  const mon = pl.monitor
+  const local = preferredSchedule.value[sid] || {}
+  return (
+    mon?.preferred_interval_minutes ??
+    local.interval_minutes ??
+    mon?.interval_minutes ??
+    60
+  )
+}
+
 function scheduleFor(pl) {
   const sid = pl.spotify_playlist_id
   const mon = pl.monitor
   const preferred = preferredSchedule.value[sid] || {}
-  const interval = mon?.interval_minutes ?? preferred.interval_minutes ?? 60
+  const interval = preferredInterval(pl)
   let checkTime = mon?.check_time ?? preferred.check_time ?? ''
-  if (usesCheckTime(interval) && !checkTime) {
+  if (usesCheckTime(activeInterval(pl)) && !checkTime) {
     checkTime = DEFAULT_DAILY_CHECK_TIME
   }
   return { interval_minutes: interval, check_time: checkTime }
@@ -251,8 +267,18 @@ function playlistSummary(pl) {
 }
 
 function scheduleLabel(pl) {
-  const { interval_minutes, check_time } = scheduleFor(pl)
+  const interval_minutes = activeInterval(pl)
+  const { check_time } = scheduleFor(pl)
   const interval = formatInterval(interval_minutes)
+  if (pl.monitor?.interval_relaxed) {
+    if (usesCheckTime(interval_minutes) && check_time) {
+      return t('monitor.everyIntervalAtWhileComplete', {
+        interval,
+        time: check_time,
+      })
+    }
+    return t('monitor.everyIntervalWhileComplete', { interval })
+  }
   if (usesCheckTime(interval_minutes) && check_time) {
     return t('monitor.everyIntervalAt', { interval, time: check_time })
   }
@@ -272,13 +298,18 @@ async function load() {
   }
 }
 
-function monitorPayload(pl, { enabled, interval_minutes, check_time }) {
+function monitorPayload(
+  pl,
+  { enabled, interval_minutes, check_time, updateInterval = true }
+) {
   const payload = {
     spotify_playlist_id: pl.spotify_playlist_id,
     enabled,
-    interval_minutes,
   }
-  if (usesCheckTime(interval_minutes) && check_time) {
+  if (updateInterval) {
+    payload.interval_minutes = interval_minutes
+  }
+  if (usesCheckTime(activeInterval(pl)) && check_time) {
     payload.check_time = check_time
     payload.check_timezone =
       pl.monitor?.check_timezone || monitorAPI.browserTimezone()
@@ -341,6 +372,7 @@ async function onChangeCheckTime(pl, event) {
         enabled: true,
         interval_minutes,
         check_time,
+        updateInterval: false,
       })
     )
     pl.monitor = res.data

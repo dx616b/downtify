@@ -7,10 +7,30 @@ from zoneinfo import ZoneInfo
 
 from downtify.monitor import (
     CALENDAR_INTERVAL_MINUTES,
+    COMPLETE_INTERVAL_MINUTES,
+    MonitoredPlaylist,
+    interval_updates_after_check,
     next_scheduled_run,
     parse_check_time_minutes,
     parse_check_timezone,
 )
+
+
+def _playlist(**kwargs: object) -> MonitoredPlaylist:
+    defaults = {
+        'id': 1,
+        'spotify_id': 'abc',
+        'name': 'Test',
+        'url': 'https://open.spotify.com/playlist/abc',
+        'interval_minutes': 1440,
+        'enabled': True,
+        'last_checked': None,
+        'last_track_count': 0,
+        'created_at': '2026-01-01T00:00:00+00:00',
+        'preferred_interval_minutes': 1440,
+    }
+    defaults.update(kwargs)
+    return MonitoredPlaylist(**defaults)
 
 
 def test_parse_check_time_minutes() -> None:
@@ -63,3 +83,29 @@ def test_interval_schedule_without_check_time() -> None:
 
 def test_calendar_interval_constant() -> None:
     assert CALENDAR_INTERVAL_MINUTES == 1440
+    assert COMPLETE_INTERVAL_MINUTES == 10080
+
+
+def test_interval_relaxes_when_playlist_complete() -> None:
+    pl = _playlist(interval_minutes=1440, preferred_interval_minutes=1440)
+    assert interval_updates_after_check(pl, queued=0, expected=10) == {
+        'interval_minutes': COMPLETE_INTERVAL_MINUTES,
+    }
+
+
+def test_interval_restores_when_tracks_missing() -> None:
+    pl = _playlist(
+        interval_minutes=COMPLETE_INTERVAL_MINUTES,
+        preferred_interval_minutes=1440,
+    )
+    assert interval_updates_after_check(pl, queued=2, expected=10) == {
+        'interval_minutes': 1440,
+    }
+
+
+def test_interval_unchanged_when_already_weekly() -> None:
+    pl = _playlist(
+        interval_minutes=COMPLETE_INTERVAL_MINUTES,
+        preferred_interval_minutes=COMPLETE_INTERVAL_MINUTES,
+    )
+    assert interval_updates_after_check(pl, queued=0, expected=10) == {}

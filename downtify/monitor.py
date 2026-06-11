@@ -23,6 +23,7 @@ from .track_index import TrackIndex
 
 MONITOR_LOOP_INTERVAL = 60  # seconds between loop sweeps
 CALENDAR_INTERVAL_MINUTES = 1440  # daily+ schedules can use a time-of-day
+COMPLETE_INTERVAL_MINUTES = 10080  # auto-relax when playlist is fully in library
 
 
 def _now_iso() -> str:
@@ -168,6 +169,34 @@ def schedule_anchor_iso(
     return _local_now().isoformat()
 
 
+def preferred_interval_minutes(playlist: MonitoredPlaylist) -> int:
+    if playlist.preferred_interval_minutes is not None:
+        return int(playlist.preferred_interval_minutes)
+    return int(playlist.interval_minutes)
+
+
+def interval_updates_after_check(
+    playlist: MonitoredPlaylist,
+    *,
+    queued: int,
+    expected: int,
+) -> dict[str, int]:
+    """Slow to weekly when complete; restore user interval when tracks are missing."""
+
+    updates: dict[str, int] = {}
+    preferred = preferred_interval_minutes(playlist)
+    if queued == 0 and expected > 0:
+        if playlist.interval_minutes < COMPLETE_INTERVAL_MINUTES:
+            updates['interval_minutes'] = COMPLETE_INTERVAL_MINUTES
+    elif queued > 0:
+        if (
+            playlist.interval_minutes >= COMPLETE_INTERVAL_MINUTES
+            and preferred < COMPLETE_INTERVAL_MINUTES
+        ):
+            updates['interval_minutes'] = preferred
+    return updates
+
+
 @dataclass
 class MonitoredPlaylist:
     id: int
@@ -181,10 +210,17 @@ class MonitoredPlaylist:
     created_at: str
     check_at_minutes: Optional[int] = None
     check_timezone: Optional[str] = None
+    preferred_interval_minutes: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data['check_time'] = format_check_time_minutes(self.check_at_minutes)
+        preferred = preferred_interval_minutes(self)
+        data['preferred_interval_minutes'] = preferred
+        data['interval_relaxed'] = (
+            self.interval_minutes > preferred
+            and self.interval_minutes >= COMPLETE_INTERVAL_MINUTES
+        )
         return data
 
 
@@ -244,6 +280,13 @@ class PlaylistMonitorDB:
                 )
             except Exception:
                 pass
+            try:
+                conn.execute(
+                    'ALTER TABLE monitored_playlists '
+                    'ADD COLUMN preferred_interval_minutes INTEGER'
+                )
+            except Exception:
+                pass
 
     def add_playlist(
         self,
@@ -253,13 +296,20 @@ class PlaylistMonitorDB:
         interval_minutes: int = 60,
         check_at_minutes: Optional[int] = None,
         check_timezone: Optional[str] = None,
+        preferred_interval_minutes: Optional[int] = None,
     ) -> MonitoredPlaylist:
+        preferred = (
+            preferred_interval_minutes
+            if preferred_interval_minutes is not None
+            else interval_minutes
+        )
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO monitored_playlists
                    (spotify_id, name, url, interval_minutes, enabled,
-                    check_at_minutes, check_timezone, created_at)
-                   VALUES (?, ?, ?, ?, 1, ?, ?, ?)""",
+                    check_at_minutes, check_timezone,
+                    preferred_interval_minutes, created_at)
+                   VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)""",
                 (
                     spotify_id,
                     name,
@@ -267,6 +317,7 @@ class PlaylistMonitorDB:
                     interval_minutes,
                     check_at_minutes,
                     check_timezone,
+                    preferred,
                     _now_iso(),
                 ),
             )
@@ -320,6 +371,7 @@ class PlaylistMonitorDB:
             'name',
             'check_at_minutes',
             'check_timezone',
+            'preferred_interval_minutes',
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
@@ -403,6 +455,11 @@ def _row_to_playlist(row: sqlite3.Row) -> MonitoredPlaylist:
     keys = row.keys()
     check_at = row['check_at_minutes'] if 'check_at_minutes' in keys else None
     check_tz = row['check_timezone'] if 'check_timezone' in keys else None
+    preferred = (
+        row['preferred_interval_minutes']
+        if 'preferred_interval_minutes' in keys
+        else None
+    )
     return MonitoredPlaylist(
         id=row['id'],
         spotify_id=row['spotify_id'],
@@ -415,6 +472,7 @@ def _row_to_playlist(row: sqlite3.Row) -> MonitoredPlaylist:
         created_at=row['created_at'],
         check_at_minutes=check_at,
         check_timezone=check_tz,
+        preferred_interval_minutes=preferred,
     )
 
 
@@ -480,16 +538,27 @@ async def check_playlist(
     expected = int(
         result.get('expected_count') or playlist.last_track_count or 0
     )
-    await asyncio.to_thread(
-        db.update_playlist,
-        playlist.id,
-        last_checked=_now_iso(),
-        last_track_count=expected,
+    updates: dict[str, Any] = {
+        'last_checked': _now_iso(),
+        'last_track_count': expected,
+    }
+    updates.update(
+        interval_updates_after_check(
+            playlist,
+            queued=queued,
+            expected=expected,
+        )
     )
+    await asyncio.to_thread(db.update_playlist, playlist.id, **updates)
     if queued > 0:
         logger.info(
             'Queued {} missing track(s) from monitored playlist "{}"',
             queued,
+            playlist.name,
+        )
+    elif expected > 0 and updates.get('interval_minutes') == COMPLETE_INTERVAL_MINUTES:
+        logger.info(
+            'Playlist "{}" is complete — check interval relaxed to 1 week',
             playlist.name,
         )
     return queued
