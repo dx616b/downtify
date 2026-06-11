@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-dvh overflow-x-hidden">
+  <div class="min-h-dvh">
     <Navbar />
     <Settings />
 
@@ -95,9 +95,11 @@
               </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <div
+              class="flex flex-col gap-2 w-full sm:w-auto sm:items-end min-w-0"
+            >
               <label
-                class="flex items-center gap-2 cursor-pointer select-none"
+                class="flex items-center gap-2 cursor-pointer select-none shrink-0"
                 :title="t('monitor.watchNew')"
               >
                 <input
@@ -112,69 +114,71 @@
                 }}</span>
               </label>
 
-              <select
-                :value="scheduleFor(pl).interval_minutes"
-                class="filter-select-xs"
-                @change="onChangeInterval(pl, $event)"
-              >
-                <option :value="15">{{ t('monitor.short15') }}</option>
-                <option :value="30">{{ t('monitor.short30') }}</option>
-                <option :value="60">{{ t('monitor.short1h') }}</option>
-                <option :value="180">{{ t('monitor.short3h') }}</option>
-                <option :value="360">{{ t('monitor.short6h') }}</option>
-                <option :value="720">{{ t('monitor.short12h') }}</option>
-                <option :value="1440">{{ t('monitor.short1d') }}</option>
-                <option :value="10080">{{ t('monitor.short1w') }}</option>
-                <option :value="20160">{{ t('monitor.short2w') }}</option>
-                <option :value="43200">{{ t('monitor.short1mo') }}</option>
-              </select>
+              <div class="flex flex-wrap items-center gap-2">
+                <select
+                  :value="scheduleFor(pl).interval_minutes"
+                  class="filter-select-xs shrink-0"
+                  @change="onChangeInterval(pl, $event)"
+                >
+                  <option :value="15">{{ t('monitor.short15') }}</option>
+                  <option :value="30">{{ t('monitor.short30') }}</option>
+                  <option :value="60">{{ t('monitor.short1h') }}</option>
+                  <option :value="180">{{ t('monitor.short3h') }}</option>
+                  <option :value="360">{{ t('monitor.short6h') }}</option>
+                  <option :value="720">{{ t('monitor.short12h') }}</option>
+                  <option :value="1440">{{ t('monitor.short1d') }}</option>
+                  <option :value="10080">{{ t('monitor.short1w') }}</option>
+                  <option :value="20160">{{ t('monitor.short2w') }}</option>
+                  <option :value="43200">{{ t('monitor.short1mo') }}</option>
+                </select>
 
-              <input
-                v-if="usesCheckTime(activeInterval(pl))"
-                type="time"
-                class="filter-select-xs w-[5.5rem]"
-                :value="scheduleFor(pl).check_time"
-                :title="t('monitor.checkTimeHint')"
-                @change="onChangeCheckTime(pl, $event)"
-              />
-
-              <button
-                v-if="pl.monitor?.enabled"
-                class="icon-btn"
-                :title="t('monitor.checkNow')"
-                :disabled="!!checking[pl.spotify_playlist_id]"
-                @click="onCheck(pl)"
-              >
-                <span
-                  v-if="checking[pl.spotify_playlist_id]"
-                  class="loading loading-spinner loading-xs"
+                <input
+                  v-if="usesCheckTime(activeInterval(pl))"
+                  type="time"
+                  class="filter-time-xs shrink-0"
+                  :value="scheduleFor(pl).check_time"
+                  :title="t('monitor.checkTimeHint')"
+                  @change="onChangeCheckTime(pl, $event)"
                 />
-                <Icon v-else icon="clarity:refresh-line" class="h-4 w-4" />
-              </button>
 
-              <a
-                v-if="pl.playlist_url"
-                class="icon-btn"
-                :href="pl.playlist_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                :title="t('search.openPlaylistOnSpotify')"
-              >
-                <Icon icon="clarity:pop-out-line" class="h-4 w-4" />
-              </a>
+                <button
+                  v-if="pl.monitor?.enabled"
+                  class="icon-btn"
+                  :title="t('monitor.checkNow')"
+                  :disabled="!!checking[pl.spotify_playlist_id]"
+                  @click="onCheck(pl)"
+                >
+                  <span
+                    v-if="checking[pl.spotify_playlist_id]"
+                    class="loading loading-spinner loading-xs"
+                  />
+                  <Icon v-else icon="clarity:refresh-line" class="h-4 w-4" />
+                </button>
 
-              <button
-                v-if="pl.missing_count > 0"
-                type="button"
-                class="icon-btn text-primary hover:bg-primary/10"
-                :disabled="!!downloading[pl.spotify_playlist_id]"
-                :title="
-                  t('search.downloadMissing', { count: pl.missing_count })
-                "
-                @click="onDownloadMissing(pl)"
-              >
-                <Icon icon="clarity:download-line" class="h-4 w-4" />
-              </button>
+                <a
+                  v-if="pl.playlist_url"
+                  class="icon-btn"
+                  :href="pl.playlist_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :title="t('search.openPlaylistOnSpotify')"
+                >
+                  <Icon icon="clarity:pop-out-line" class="h-4 w-4" />
+                </a>
+
+                <button
+                  v-if="pl.missing_count > 0"
+                  type="button"
+                  class="icon-btn text-primary hover:bg-primary/10"
+                  :disabled="!!downloading[pl.spotify_playlist_id]"
+                  :title="
+                    t('search.downloadMissing', { count: pl.missing_count })
+                  "
+                  @click="onDownloadMissing(pl)"
+                >
+                  <Icon icon="clarity:download-line" class="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
         </li>
