@@ -10,8 +10,8 @@ from mutagen.id3 import ID3, TIT2, TPE1
 
 from downtify.library_catalog import (
     LibraryContext,
-    scan_library_paths,
     list_library_entries,
+    scan_library_paths,
 )
 from downtify.library_metadata_cache import LibraryMetadataCache
 from downtify.library_paths_cache import set_cached_paths

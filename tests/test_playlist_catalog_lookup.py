@@ -7,11 +7,11 @@ from pathlib import Path
 
 from downtify.library_catalog import (
     LibraryContext,
-    scan_library_paths,
     list_library_entries,
+    scan_library_paths,
 )
-from downtify.library_paths_cache import set_cached_paths
 from downtify.library_metadata_cache import LibraryMetadataCache
+from downtify.library_paths_cache import set_cached_paths
 from downtify.library_reconcile import prune_stale_and_backfill
 from downtify.playlist_catalog import PlaylistCatalog
 

@@ -83,10 +83,7 @@
       </p>
 
       <!-- Playlist filter + bulk selection -->
-      <div
-        v-if="totalItems > 0"
-        class="mb-4 flex flex-wrap items-center gap-2"
-      >
+      <div v-if="totalItems > 0" class="mb-4 flex flex-wrap items-center gap-2">
         <label class="text-xs text-base-content/50 shrink-0">
           {{ t('library.filterByPlaylist') }}
         </label>
