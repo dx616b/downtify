@@ -14,7 +14,7 @@ import requests
 from loguru import logger
 
 LRCLIB_BASE = 'https://lrclib.net/api'
-_USER_AGENT = 'Downtify (https://github.com/henriquesebastiao/downtify)'
+_USER_AGENT = 'Downtify (https://github.com/dx616b/downtify)'
 
 SUPPORTED_PROVIDERS = {'lrclib'}
 

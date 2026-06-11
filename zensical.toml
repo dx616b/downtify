@@ -6,13 +6,13 @@
 
 site_name        = "Downtify"
 site_description = "Self-hosted music downloader. Paste a Spotify link, get a perfectly tagged audio file — no API keys, no account, no hassle."
-site_author      = "Henrique Sebastião"
-site_url         = "https://henriquesebastiao.github.io/downtify/"
-copyright        = "Copyright &copy; 2024 – 2026 Henrique Sebastião"
+site_author      = "dx616b"
+site_url         = "https://github.com/dx616b/downtify"
+copyright        = "Copyright &copy; 2024 – 2026 Downtify contributors"
 
-repo_url  = "https://github.com/henriquesebastiao/downtify"
-repo_name = "henriquesebastiao/downtify"
-edit_uri  = "edit/main/docs-src/docs/"
+repo_url  = "https://github.com/dx616b/downtify"
+repo_name = "dx616b/downtify"
+edit_uri  = "edit/main/docs/"
 
 extra_css = ["stylesheets/extra.css"]
 
@@ -97,12 +97,12 @@ toggle.name = "Switch to light mode"
 # ----------------------------------------------------------------------------
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/henriquesebastiao/downtify"
+link = "https://github.com/dx616b/downtify"
 name = "GitHub"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/docker"
-link = "https://hub.docker.com/r/henriquesebastiao/downtify"
+link = "https://hub.docker.com/r/dx616b/downtify"
 name = "Docker Hub"
 
 # ----------------------------------------------------------------------------

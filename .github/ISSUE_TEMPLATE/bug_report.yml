@@ -52,7 +52,7 @@ body:
       description: |
         Which version of Downtify are you running?
         You can find it in the bottom of the web UI or by running:
-        `docker inspect henriquesebastiao/downtify --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
+        `docker inspect dx616b/downtify:latest --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
       placeholder: "e.g. 2.5.0"
     validations:
       required: true

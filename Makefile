@@ -1,7 +1,7 @@
 #!make
 
 DOWNTIFY_VERSION := 2.8.0
-TARGET := henriquesebastiao/downtify
+TARGET := dx616b/downtify
 
 all: build latest
 
@@ -40,7 +40,7 @@ export:
 	uv export --no-hashes --no-dev -o requirements.txt
 
 changelog:
-	github_changelog_generator -u henriquesebastiao -p downtify -o CHANGELOG --no-verbose
+	github_changelog_generator -u dx616b -p downtify -o CHANGELOG --no-verbose
 	@echo "Changelog generated at CHANGELOG"
 
 test:
