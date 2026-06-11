@@ -249,6 +249,18 @@
     @apply bg-white text-base-content;
   }
 
+  .filter-time-xs {
+    @apply input input-bordered input-xs rounded-full text-base-content;
+    @apply bg-base-100/85 border-white/10;
+    @apply outline-none transition focus:border-primary/60;
+    min-width: 7.25rem;
+    color-scheme: dark;
+  }
+  [data-theme='downtify-light'] .filter-time-xs {
+    @apply bg-white/85 border-black/10;
+    color-scheme: light;
+  }
+
   .track-card {
     @apply relative flex items-center gap-4 rounded-2xl p-3 sm:p-4 transition-all duration-200 hover:bg-white/5;
   }
