@@ -240,8 +240,8 @@ def build_app() -> FastAPI:
     app = FastAPI(
         title='Downtify',
         description=(
-            'Download your Spotify playlists and songs along with album '
-            'art and metadata in a self-hosted way via Docker.'
+            'Self-hosted Spotify downloader with slskd, Navidrome sync, '
+            'and playlist monitor.'
         ),
         version=__version__,
         lifespan=_application_lifespan,
