@@ -37,7 +37,6 @@ jobs:
             type=org.opencontainers.image.documentation,value=https://github.com/dx616b/downtify#readme
           tags: |
             type=raw,value=latest
-            type=raw,value=slskd-dev
             type=sha,prefix=,format=short
 
       - name: Build and push
