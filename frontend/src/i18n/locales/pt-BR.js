@@ -169,6 +169,8 @@ export default {
       'Excluir todas as faixas de "{name}"? Remove arquivos e a entrada no catálogo. M3U e Navidrome sincronizam em segundo plano.',
     playlistDeleted: 'Playlist "{name}" removida ({count} faixas).',
     playlistDeleteFailed: 'Não foi possível excluir a playlist "{name}".',
+    pathsScanning:
+      'Procurando novos arquivos em segundo plano. A lista pode atualizar em breve.',
   },
   monitor: {
     title: 'Monitor de playlists',

@@ -8,8 +8,13 @@ from unittest.mock import patch
 
 from mutagen.id3 import ID3, TIT2, TPE1
 
-from downtify.library_catalog import LibraryContext, list_library_entries
+from downtify.library_catalog import (
+    LibraryContext,
+    list_library_entries,
+    scan_library_paths,
+)
 from downtify.library_metadata_cache import LibraryMetadataCache
+from downtify.library_paths_cache import set_cached_paths
 from downtify.sqlite_utils import connect_sqlite
 
 
@@ -31,6 +36,7 @@ def test_cache_hit_skips_mutagen(tmp_path: Path) -> None:
     cache.refresh('Artist - Song.mp3', track)
 
     ctx = LibraryContext(download_dir=download_dir, metadata_cache=cache)
+    set_cached_paths(ctx, scan_library_paths(ctx))
     with patch('downtify.library_metadata.read_audio_metadata') as read_meta:
         entries = list_library_entries(ctx)
         read_meta.assert_not_called()

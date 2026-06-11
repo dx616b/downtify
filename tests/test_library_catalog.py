@@ -7,11 +7,14 @@ from mutagen.id3 import ID3, TIT2, TPE1
 from downtify.library_catalog import (
     LibraryContext,
     list_library_entries,
+    list_library_entries_page,
     list_library_paths,
     resolve_library_file,
+    scan_library_paths,
 )
 from downtify.library_metadata_cache import LibraryMetadataCache
 from downtify.library_paths import library_stored_path
+from downtify.library_paths_cache import set_cached_paths
 
 
 def test_list_library_includes_slskd_tree(tmp_path):
@@ -25,6 +28,7 @@ def test_list_library_includes_slskd_tree(tmp_path):
     slskd_track.write_bytes(b's')
 
     ctx = LibraryContext(download_dir=download_dir, slskd_dir=slskd_dir)
+    set_cached_paths(ctx, scan_library_paths(ctx))
     paths = list_library_paths(ctx)
 
     assert 'YouTube - Song.mp3' in paths
@@ -64,11 +68,26 @@ def test_list_library_entries_reads_embedded_tags(tmp_path):
     ctx = LibraryContext(
         download_dir=download_dir, slskd_dir=slskd_dir, metadata_cache=cache
     )
+    set_cached_paths(ctx, scan_library_paths(ctx))
     entries = list_library_entries(ctx)
     assert len(entries) == 1
     assert entries[0]['title'] == 'Real Title'
     assert entries[0]['artist'] == 'Real Artist'
     assert entries[0]['file'].startswith('slskd/')
+
+
+def test_list_library_entries_page_returns_slice(tmp_path):
+    download_dir = tmp_path / 'downloads'
+    download_dir.mkdir()
+    for index in range(5):
+        (download_dir / f'Track {index}.mp3').write_bytes(b'x')
+
+    cache = LibraryMetadataCache(tmp_path / 'library.db')
+    ctx = LibraryContext(download_dir=download_dir, metadata_cache=cache)
+    set_cached_paths(ctx, scan_library_paths(ctx))
+    rows, total = list_library_entries_page(ctx, page=2, limit=2)
+    assert total == 5
+    assert len(rows) == 2
 
 
 def test_resolve_library_file_legacy_dotdot_slskd_path(tmp_path):

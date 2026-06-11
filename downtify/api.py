@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -56,7 +57,10 @@ from .library_delete import (
 )
 from .library_metadata_cache import LibraryMetadataCache
 from .library_paths import locate_library_file, slskd_dir_from_downloader
-from .library_paths_cache import invalidate_library_paths_cache
+from .library_paths_cache import (
+    invalidate_library_paths_cache,
+    register_paths_change_listener,
+)
 from .library_reconcile import (
     playlist_refresh_enabled,
     reconcile_and_refresh,
@@ -722,8 +726,7 @@ def check_update() -> Optional[dict[str, Any]]:
     return None
 
 
-@router.get('/api/songs/search')
-def search_endpoint(query: str = Query('')) -> list[dict[str, Any]]:
+def _search_songs(query: str) -> list[dict[str, Any]]:
     results = providers.search_songs(query, limit=20)
     if results:
         return results
@@ -745,14 +748,19 @@ def search_endpoint(query: str = Query('')) -> list[dict[str, Any]]:
     return []
 
 
+@router.get('/api/songs/search')
+async def search_endpoint(query: str = Query('')) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_search_songs, query)
+
+
 @router.get('/api/song/url')
-def song_url_endpoint(url: str = Query(...)):
-    return _resolve_url(url)
+async def song_url_endpoint(url: str = Query(...)):
+    return await asyncio.to_thread(_resolve_url, url)
 
 
 @router.get('/api/url')
-def url_endpoint(url: str = Query(...)):
-    return _resolve_url(url)
+async def url_endpoint(url: str = Query(...)):
+    return await asyncio.to_thread(_resolve_url, url)
 
 
 def _resolve_url(url: str):
@@ -1209,7 +1217,9 @@ async def _sync_playlist_navidrome(
             state.settings,
             navidrome_index=state.navidrome_index,
             download_dir=download_dir,
-            delete_tag_mismatches=tag_mismatch_delete_context_from_state(state),
+            delete_tag_mismatches=tag_mismatch_delete_context_from_state(
+                state
+            ),
         )
     except Exception:
         logger.exception(
@@ -1835,6 +1845,15 @@ def _report_for_spotify_playlist(
     return report
 
 
+_BATCH_REPORTS_CACHE: tuple[float, list[dict[str, Any]]] | None = None
+_BATCH_REPORTS_CACHE_TTL_SECONDS = 30.0
+
+
+def invalidate_playlist_batch_reports_cache() -> None:
+    global _BATCH_REPORTS_CACHE
+    _BATCH_REPORTS_CACHE = None
+
+
 def _build_playlist_batch_reports(
     *,
     include_tracks: bool = False,
@@ -1869,6 +1888,24 @@ def _build_playlist_batch_reports(
         )
     )
     _attach_monitor_state(reports)
+    return reports
+
+
+def _build_playlist_batch_reports_cached(
+    *,
+    include_tracks: bool = False,
+) -> list[dict[str, Any]]:
+    global _BATCH_REPORTS_CACHE
+    if include_tracks:
+        return _build_playlist_batch_reports(include_tracks=True)
+    now = time.monotonic()
+    if (
+        _BATCH_REPORTS_CACHE is not None
+        and now - _BATCH_REPORTS_CACHE[0] < _BATCH_REPORTS_CACHE_TTL_SECONDS
+    ):
+        return _BATCH_REPORTS_CACHE[1]
+    reports = _build_playlist_batch_reports(include_tracks=False)
+    _BATCH_REPORTS_CACHE = (now, reports)
     return reports
 
 
@@ -1967,10 +2004,13 @@ async def queue_missing_playlist_tracks(
         raise ValueError('spotify_playlist_id required')
 
     resolved_url = str(playlist_url or '').strip()
-    playlist_name, fetched_url, missing, expected_count = (
-        await asyncio.to_thread(
-            _missing_tracks_for_playlist, sid, refresh=refresh
-        )
+    (
+        playlist_name,
+        fetched_url,
+        missing,
+        expected_count,
+    ) = await asyncio.to_thread(
+        _missing_tracks_for_playlist, sid, refresh=refresh
     )
     if not resolved_url:
         resolved_url = fetched_url
@@ -2267,7 +2307,7 @@ async def download_batch_endpoint(request: Request) -> dict[str, Any]:
 async def list_playlist_batches_endpoint() -> dict[str, Any]:
     """Tracked Spotify playlist batches (summary from Spotify cache)."""
 
-    reports = await asyncio.to_thread(_build_playlist_batch_reports)
+    reports = await asyncio.to_thread(_build_playlist_batch_reports_cached)
     return {'playlists': reports, 'count': len(reports)}
 
 
@@ -2798,11 +2838,7 @@ def _monitor_schedule_kwargs(
         'check_at_minutes': check_at_minutes,
         'check_timezone': check_timezone,
     }
-    if enabled and (
-        reschedule
-        or not was_enabled
-        or last_checked is None
-    ):
+    if enabled and (reschedule or not was_enabled or last_checked is None):
         kwargs['last_checked'] = schedule_anchor_iso(
             interval_minutes,
             check_at_minutes,
@@ -2937,7 +2973,9 @@ async def update_monitor_playlist(
         payload, interval_minutes, existing
     )
 
-    enabled = bool(payload['enabled']) if 'enabled' in payload else existing.enabled
+    enabled = (
+        bool(payload['enabled']) if 'enabled' in payload else existing.enabled
+    )
     schedule_kwargs = _monitor_schedule_kwargs(
         enabled=enabled,
         interval_minutes=interval_minutes,
@@ -3004,3 +3042,6 @@ async def manual_check_playlist(playlist_id: int) -> dict[str, Any]:
 
     asyncio.create_task(_run())
     return {'status': 'check_started', 'id': playlist_id}
+
+
+register_paths_change_listener(invalidate_playlist_batch_reports_cache)

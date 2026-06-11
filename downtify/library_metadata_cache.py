@@ -141,6 +141,61 @@ class LibraryMetadataCache:
             rows[0] if rows else library_entry_for_file(stored_path, full_path)
         )
 
+    def search_entries(
+        self,
+        query: str,
+        *,
+        allowed_filenames: Optional[set[str]] = None,
+    ) -> list[str]:
+        """Return stored paths matching *query* (all terms must match)."""
+
+        terms = [part.lower() for part in str(query or '').split() if part]
+        if not terms:
+            if allowed_filenames is None:
+                return []
+            return sorted(allowed_filenames)
+
+        allowed = None
+        if allowed_filenames is not None:
+            allowed = {
+                _norm_filename(name)
+                for name in allowed_filenames
+                if _norm_filename(name)
+            }
+
+        matched: list[str] = []
+        seen: set[str] = set()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT filename, title, artist, album
+                   FROM library_metadata"""
+            ).fetchall()
+        for row in rows:
+            name = _norm_filename(str(row['filename']))
+            if not name or name in seen:
+                continue
+            if allowed is not None and name not in allowed:
+                continue
+            haystack = ' '.join([
+                str(row['title'] or ''),
+                str(row['artist'] or ''),
+                str(row['album'] or ''),
+                name,
+            ]).lower()
+            if all(term in haystack for term in terms):
+                matched.append(name)
+                seen.add(name)
+
+        if allowed is not None:
+            for name in allowed:
+                if name in seen:
+                    continue
+                if all(term in name.lower() for term in terms):
+                    matched.append(name)
+                    seen.add(name)
+
+        return sorted(matched)
+
     def get_entries_batch(
         self, items: list[tuple[str, Path]]
     ) -> list[dict[str, str]]:

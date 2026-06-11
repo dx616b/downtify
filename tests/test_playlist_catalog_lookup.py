@@ -5,8 +5,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from downtify.library_catalog import LibraryContext, list_library_entries
+from downtify.library_catalog import (
+    LibraryContext,
+    list_library_entries,
+    scan_library_paths,
+)
 from downtify.library_metadata_cache import LibraryMetadataCache
+from downtify.library_paths_cache import set_cached_paths
 from downtify.library_reconcile import prune_stale_and_backfill
 from downtify.playlist_catalog import PlaylistCatalog
 
@@ -31,6 +36,7 @@ def test_playlists_on_list_entries(tmp_path: Path) -> None:
         metadata_cache=cache,
         playlist_catalog=catalog,
     )
+    set_cached_paths(ctx, scan_library_paths(ctx))
     entries = list_library_entries(ctx)
     assert len(entries) == 1
     assert entries[0]['playlists'] == ['Road Mix']
