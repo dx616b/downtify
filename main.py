@@ -233,11 +233,16 @@ async def _application_startup() -> None:
             playlist_catalog=api.state.playlist_catalog,
         )
 
+    loop = asyncio.get_running_loop()
+
     async def _rescan_library_paths() -> None:
         await schedule_library_paths_rescan(_library_ctx(), scan_library_paths)
 
     def _schedule_library_paths_rescan() -> None:
-        asyncio.create_task(_rescan_library_paths())
+        def _start() -> None:
+            asyncio.create_task(_rescan_library_paths())
+
+        loop.call_soon_threadsafe(_start)
 
     api.state.schedule_library_paths_rescan = _schedule_library_paths_rescan
     set_paths_rescan_callback(_schedule_library_paths_rescan)

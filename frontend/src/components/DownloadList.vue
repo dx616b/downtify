@@ -321,7 +321,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, reactive, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
 import API from '../model/api'
 import {
@@ -464,20 +464,8 @@ watch(pendingCount, (pending, prev) => {
   }
 })
 
-let queueRefreshTimer = null
-
 onMounted(() => {
   syncQueueFromServer().catch(() => {})
-  queueRefreshTimer = setInterval(() => {
-    syncQueueFromServer().catch(() => {})
-  }, 2000)
-})
-
-onUnmounted(() => {
-  if (queueRefreshTimer) {
-    clearInterval(queueRefreshTimer)
-    queueRefreshTimer = null
-  }
 })
 
 async function onClearAll() {

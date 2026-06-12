@@ -166,6 +166,34 @@ export function useProgressTracker() {
 
 const progressTracker = useProgressTracker()
 
+const playlistBatchListeners = new Set()
+
+export function onPlaylistBatchesChanged(listener) {
+  playlistBatchListeners.add(listener)
+  return () => playlistBatchListeners.delete(listener)
+}
+
+function notifyPlaylistBatchesChanged() {
+  for (const listener of playlistBatchListeners) {
+    try {
+      listener()
+    } catch (e) {
+      console.log('playlist batch listener failed:', e)
+    }
+  }
+}
+
+function applyQueuePruned(removed) {
+  if (!removed) return
+  downloadQueue.value = downloadQueue.value.filter(
+    (item) => !item.isDownloaded()
+  )
+  touchQueue()
+  if (!queueHasActiveItems()) {
+    stopQueuePoll()
+  }
+}
+
 let queuePollTimer = null
 
 function queueHasActiveItems() {
@@ -192,12 +220,27 @@ function ensureQueuePoll() {
   }, 3000)
 }
 
+export async function pruneCompletedQueue() {
+  downloadQueue.value = downloadQueue.value.filter(
+    (item) => !item.isDownloaded()
+  )
+  touchQueue()
+  try {
+    await API.clearCompletedQueue()
+  } catch (e) {
+    console.log('Failed to clear completed queue on server:', e)
+  }
+}
+
 export async function syncQueueFromServer() {
   const res = await API.getQueue()
   const jobs = res.data || []
+  const serverKeys = new Set()
   for (const job of jobs) {
     const song = job.song
     if (!song) continue
+    const key = jobSongKey(song)
+    if (key) serverKeys.add(key)
     let item = progressTracker.getBySong(song)
     if (!item) {
       item = new DownloadItem(song)
@@ -205,6 +248,11 @@ export async function syncQueueFromServer() {
     }
     applyServerJob(item, job)
   }
+  downloadQueue.value = downloadQueue.value.filter((item) => {
+    if (!item.isDownloaded()) return true
+    const key = jobSongKey(item.song)
+    return key && serverKeys.has(key)
+  })
   touchQueue()
   if (queueHasActiveItems()) {
     ensureQueuePoll()
@@ -215,6 +263,18 @@ export async function syncQueueFromServer() {
 
 API.ws_onmessage((event) => {
   let data = JSON.parse(event.data)
+  if (data.status === 'playlist_batches_changed') {
+    applyQueuePruned(data.queue_pruned || data.removed || 0)
+    notifyPlaylistBatchesChanged()
+    return
+  }
+  if (data.status === 'queue_pruned') {
+    applyQueuePruned(data.removed || 0)
+    return
+  }
+  if (!data.song) {
+    return
+  }
   let item = progressTracker.getBySong(data.song)
   if (!item) {
     progressTracker.appendSong(data.song)
@@ -247,7 +307,6 @@ API.ws_onmessage((event) => {
     item.wsUpdate(data)
   }
   ensureQueuePoll()
-  syncQueueFromServer().catch(() => {})
 })
 API.ws_onerror((event) => {
   console.log('websocket error:', event)
@@ -267,15 +326,7 @@ export function useDownloadManager() {
   const loading = ref(false)
   const settingsManager = useSettingsManager()
   async function pruneCompletedForNewPlaylist() {
-    downloadQueue.value = downloadQueue.value.filter(
-      (item) => !item.isDownloaded()
-    )
-    touchQueue()
-    try {
-      await API.clearCompletedQueue()
-    } catch (e) {
-      console.log('Failed to clear completed queue on server:', e)
-    }
+    await pruneCompletedQueue()
   }
 
   function _queueSongForBatch(song) {

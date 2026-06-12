@@ -891,6 +891,36 @@ def _register_job(song: dict[str, Any], status: str = 'queued') -> str:
     return song_id
 
 
+def _clear_completed_jobs() -> int:
+    """Remove finished jobs from the in-memory queue."""
+
+    removed = [
+        song_id
+        for song_id, job in list(state.download_jobs.items())
+        if job.get('status') == 'done'
+    ]
+    for song_id in removed:
+        del state.download_jobs[song_id]
+    return len(removed)
+
+
+async def _prune_queue_after_batch() -> int:
+    """Drop completed jobs once a download batch finishes."""
+
+    cleared = _clear_completed_jobs()
+    if cleared:
+        logger.debug(
+            'Cleared {} completed queue job(s) after batch finished',
+            cleared,
+        )
+    invalidate_playlist_batch_reports_cache()
+    await state.connections.broadcast({
+        'status': 'playlist_batches_changed',
+        'queue_pruned': cleared,
+    })
+    return cleared
+
+
 async def _run_download(  # noqa: PLR0914
     song: dict[str, Any],
     song_id: str,
@@ -1288,6 +1318,25 @@ def _rebuild_playlist_catalog_from_library(
 
 
 async def _process_batch(
+    songs: list[dict[str, Any]],
+    job_ids: list[str],
+    playlist_url: str,
+    generate_m3u: bool,
+    batch_id: Optional[int] = None,
+) -> None:
+    try:
+        await _run_process_batch(
+            songs,
+            job_ids,
+            playlist_url,
+            generate_m3u,
+            batch_id=batch_id,
+        )
+    finally:
+        await _prune_queue_after_batch()
+
+
+async def _run_process_batch(
     songs: list[dict[str, Any]],
     job_ids: list[str],
     playlist_url: str,
@@ -2093,6 +2142,13 @@ async def _submit_playlist_batch(
     generate_m3u: bool,
     batch_id: Optional[int] = None,
 ) -> dict[str, Any]:
+    cleared = _clear_completed_jobs()
+    if cleared:
+        logger.debug(
+            'Cleared {} completed queue job(s) before playlist batch',
+            cleared,
+        )
+
     valid_songs: list[dict[str, Any]] = []
     job_ids: list[str] = []
     for song in songs:
@@ -2458,14 +2514,7 @@ def clear_queue() -> dict:
 @router.delete('/api/queue/completed')
 def clear_completed_queue() -> dict:
     """Remove finished jobs so a new playlist queue is easier to read."""
-    removed = [
-        song_id
-        for song_id, job in list(state.download_jobs.items())
-        if job.get('status') == 'done'
-    ]
-    for song_id in removed:
-        del state.download_jobs[song_id]
-    return {'removed': len(removed)}
+    return {'removed': _clear_completed_jobs()}
 
 
 @router.delete('/api/queue/item')

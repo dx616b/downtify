@@ -198,12 +198,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Icon } from '@iconify/vue'
 import Navbar from '/src/components/Navbar.vue'
 import Settings from '/src/components/Settings.vue'
 import API from '/src/model/api.js'
 import monitorAPI from '/src/model/monitor.js'
+import {
+  onPlaylistBatchesChanged,
+  pruneCompletedQueue,
+} from '/src/model/download.js'
 import { useI18n } from '/src/i18n'
 
 const { t } = useI18n()
@@ -402,6 +406,7 @@ async function onDownloadMissing(pl) {
   const sid = pl.spotify_playlist_id
   downloading.value = { ...downloading.value, [sid]: true }
   try {
+    await pruneCompletedQueue()
     await API.downloadMissingPlaylistTracks({
       spotify_playlist_id: sid,
       playlist_url: pl.playlist_url,
@@ -441,5 +446,19 @@ function timeAgo(isoString) {
   }
 }
 
-onMounted(load)
+let stopPlaylistBatchListener = null
+
+onMounted(() => {
+  stopPlaylistBatchListener = onPlaylistBatchesChanged(() => {
+    load().catch(() => {})
+  })
+  load()
+})
+
+onUnmounted(() => {
+  if (stopPlaylistBatchListener) {
+    stopPlaylistBatchListener()
+    stopPlaylistBatchListener = null
+  }
+})
 </script>

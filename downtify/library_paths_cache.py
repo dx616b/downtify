@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from .library_catalog import LibraryContext
 
@@ -90,9 +92,9 @@ def invalidate_library_paths_cache() -> None:
         try:
             _rescan_callback()
         except Exception:
-            pass
+            logger.exception('Library paths rescan callback failed')
     for listener in _change_listeners:
         try:
             listener()
         except Exception:
-            pass
+            logger.exception('Library paths change listener failed')
