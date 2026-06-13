@@ -91,42 +91,41 @@ def test_save_playlist_audio_providers_persists(
         state.playlist_catalog = None
 
 
-@patch('downtify.api.resolve_existing_download', return_value=None)
-@patch('downtify.api.state')
-def test_run_download_passes_playlist_providers(
-    mock_state: MagicMock,
-    _mock_resolve: MagicMock,
-) -> None:
-    downloader = MagicMock()
-    downloader.youtube_settings = {}
-    downloader.download.return_value = 'Artist - Song.mp3'
+def test_run_download_passes_playlist_providers() -> None:
+    with (
+        patch('downtify.api.resolve_existing_download', return_value=None),
+        patch('downtify.api.state') as mock_state,
+    ):
+        downloader = MagicMock()
+        downloader.youtube_settings = {}
+        downloader.download.return_value = 'Artist - Song.mp3'
 
-    catalog = MagicMock()
-    catalog.get_audio_providers.return_value = ['youtube']
+        catalog = MagicMock()
+        catalog.get_audio_providers.return_value = ['youtube']
 
-    mock_state.downloader = downloader
-    mock_state.playlist_catalog = catalog
-    mock_state.track_index = None
-    mock_state.settings = {
-        'audio_providers': ['slskd', 'youtube-music'],
-        'slskd': {'enabled': True},
-    }
-    mock_state.download_jobs = {}
-    mock_state.download_limiter = None
-    mock_state.loop = None
-    mock_state.connections = MagicMock()
-    mock_state.connections.broadcast = AsyncMock(return_value=None)
+        mock_state.downloader = downloader
+        mock_state.playlist_catalog = catalog
+        mock_state.track_index = None
+        mock_state.settings = {
+            'audio_providers': ['slskd', 'youtube-music'],
+            'slskd': {'enabled': True},
+        }
+        mock_state.download_jobs = {}
+        mock_state.download_limiter = None
+        mock_state.loop = None
+        mock_state.connections = MagicMock()
+        mock_state.connections.broadcast = AsyncMock(return_value=None)
 
-    async def _run() -> None:
-        await _run_download(
-            {'name': 'Song', 'artists': ['Artist'], 'song_id': 't1'},
-            't1',
-            spotify_playlist_id='playlist42',
-            refresh_playlists=False,
-        )
+        async def _run() -> None:
+            await _run_download(
+                {'name': 'Song', 'artists': ['Artist'], 'song_id': 't1'},
+                't1',
+                spotify_playlist_id='playlist42',
+                refresh_playlists=False,
+            )
 
-    asyncio.run(_run())
+        asyncio.run(_run())
 
-    downloader.download.assert_called_once()
-    kwargs = downloader.download.call_args.kwargs
-    assert kwargs['audio_providers'] == ['youtube']
+        downloader.download.assert_called_once()
+        kwargs = downloader.download.call_args.kwargs
+        assert kwargs['audio_providers'] == ['youtube']
