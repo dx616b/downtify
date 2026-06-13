@@ -86,6 +86,13 @@ function downloadMissingPlaylistTracks(payload) {
   return API.post('/api/playlists/incomplete/download-missing', payload)
 }
 
+function patchPlaylistSettings(spotifyPlaylistId, payload) {
+  return API.patch(
+    `/api/playlists/batches/${encodeURIComponent(spotifyPlaylistId)}/settings`,
+    payload
+  )
+}
+
 function deletePlaylistBatch(spotifyPlaylistId) {
   return API.delete(
     `/api/playlists/batches/${encodeURIComponent(spotifyPlaylistId)}`
@@ -241,6 +248,7 @@ export default {
   getPlaylistBatches,
   getPlaylistBatchDetails,
   downloadMissingPlaylistTracks,
+  patchPlaylistSettings,
   deletePlaylistBatch,
   downloadFileURL,
   downloadSaveName,

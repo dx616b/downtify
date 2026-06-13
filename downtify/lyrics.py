@@ -73,6 +73,9 @@ def _fetch_lrclib(song: dict[str, Any]) -> Optional[Lyrics]:
         return None
 
     if response.status_code == 404:
+        logger.debug(
+            'lrclib has no lyrics for {!r} by {!r}', title, artists[0]
+        )
         return None
     if response.status_code != 200:
         logger.warning(
@@ -89,6 +92,13 @@ def _fetch_lrclib(song: dict[str, Any]) -> Optional[Lyrics]:
     synced = (data.get('syncedLyrics') or '').strip() or None
     if not plain and not synced:
         return None
+    logger.debug(
+        'lrclib matched {!r} by {!r} (plain={}, synced={})',
+        title,
+        artists[0],
+        bool(plain),
+        bool(synced),
+    )
     return Lyrics(plain=plain, synced=synced)
 
 

@@ -21,9 +21,7 @@ def test_invalidate_rescan_callback_safe_from_worker_thread() -> None:
         done.set()
 
     def _schedule() -> None:
-        loop.call_soon_threadsafe(
-            lambda: asyncio.create_task(_rescan())
-        )
+        loop.call_soon_threadsafe(lambda: asyncio.create_task(_rescan()))
 
     set_paths_rescan_callback(_schedule)
     try:

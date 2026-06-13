@@ -54,7 +54,7 @@ export default {
     openOnSpotify: 'Open on Spotify',
     playlistTitle: 'Spotify playlist',
     playlistSubtitle:
-      'Pick tracks to download individually, or download the whole playlist.',
+      'Pick tracks to download individually, or download the whole playlist. Choose download sources below before you start.',
     openPlaylistOnSpotify: 'Open playlist on Spotify',
     downloadEntirePlaylist: 'Download entire playlist',
     playlistBatchesTitle: 'Incomplete playlists',
@@ -191,6 +191,7 @@ export default {
     checkTimeHint:
       'Time of day for daily (or longer) checks — uses your browser’s local timezone.',
     info: 'Auto-watch periodically refreshes the playlist from Spotify and queues any tracks that are not in your library yet. When every track is already in your library, checks slow to once a week until something is missing again. For daily or longer intervals you can pick a time of day. Use Download missing to retry failed or skipped tracks immediately.',
+    audioSources: 'Download sources',
     every15: 'Every 15 min',
     every30: 'Every 30 min',
     every1h: 'Every hour',
@@ -224,6 +225,11 @@ export default {
     timeHourAgo: '{n} h ago',
     timeDayAgo: '{n} day(s) ago',
   },
+  playlistProviders: {
+    useGlobal: 'Use global download sources',
+    usingGlobal: 'Using global: {chain}',
+    customHint: 'Try sources in order until one succeeds for this playlist.',
+  },
   settings: {
     title: 'Settings',
     subtitle: 'Tweak how Downtify fetches and tags your music.',
@@ -235,7 +241,7 @@ export default {
     lyricsHint: 'only lrclib is active',
     downloadLyrics: 'Download lyrics',
     downloadLyricsHint:
-      'Embed lyrics in audio files and write .lrc sidecar files',
+      'Fetch from lrclib — embed plain lyrics in files and write .lrc sidecars when synced',
     lyricsProvider: 'Provider',
     format: 'Format',
     quality: 'Quality',

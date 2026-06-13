@@ -339,9 +339,10 @@ export function useDownloadManager() {
     progressTracker.appendSong(song)
   }
 
-  function fromURL(url) {
+  function fromURL(url, options = {}) {
     const isPlaylistURL = (url || '').includes('://open.spotify.com/playlist/')
     const generateM3u = settingsManager.settings.value.generate_m3u !== false
+    const audioProviders = options.audio_providers
     loading.value = true
     const playlistPrep = isPlaylistURL
       ? pruneCompletedForNewPlaylist()
@@ -370,11 +371,15 @@ export function useDownloadManager() {
           }
           touchQueue()
           ensureQueuePoll()
-          return API.downloadBatch({
+          const batchPayload = {
             songs,
             playlist_url: isPlaylistURL ? url : '',
             generate_m3u: generateM3u,
-          })
+          }
+          if (isPlaylistURL && audioProviders != null) {
+            batchPayload.audio_providers = audioProviders
+          }
+          return API.downloadBatch(batchPayload)
             .then(() => syncQueueFromServer())
             .then(() => ensureQueuePoll())
             .catch((err) => {

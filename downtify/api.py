@@ -12,6 +12,7 @@ working without changes:
 * ``POST /api/playlist/m3u``
 * ``GET  /api/playlists/batches``
 * ``GET  /api/playlists/batches/{spotify_playlist_id}``
+* ``PATCH /api/playlists/batches/{spotify_playlist_id}/settings``
 * ``DELETE /api/playlists/batches/{spotify_playlist_id}``
 * ``POST /api/playlists/incomplete/download-missing``
 * ``GET  /api/settings``
@@ -457,6 +458,59 @@ def _effective_audio_providers(settings: dict[str, Any]) -> list[str]:
                 seen.add(fallback)
                 out.append(fallback)
     return out
+
+
+def _playlist_audio_providers_override(
+    spotify_playlist_id: Optional[str],
+) -> Optional[list[str]]:
+    sid = str(spotify_playlist_id or '').strip()
+    if not sid or state.playlist_catalog is None:
+        return None
+    return state.playlist_catalog.get_audio_providers(sid)
+
+
+def _effective_playlist_audio_providers(
+    spotify_playlist_id: Optional[str],
+    settings: dict[str, Any],
+) -> list[str]:
+    override = _playlist_audio_providers_override(spotify_playlist_id)
+    if override is not None:
+        merged = {**settings, 'audio_providers': override}
+        return _effective_audio_providers(merged)
+    return _effective_audio_providers(settings)
+
+
+def _save_playlist_audio_providers(
+    spotify_playlist_id: str,
+    playlist_name: str,
+    audio_providers: Any,
+) -> None:
+    if state.playlist_catalog is None:
+        raise HTTPException(
+            status_code=500, detail='Playlist catalog not ready'
+        )
+    sid = str(spotify_playlist_id or '').strip()
+    if not sid:
+        raise HTTPException(
+            status_code=400, detail='spotify_playlist_id required'
+        )
+    if audio_providers is None:
+        providers: Optional[list[str]] = None
+    elif isinstance(audio_providers, list):
+        providers = [
+            str(p).strip() for p in audio_providers if str(p).strip()
+        ] or None
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail='audio_providers must be a list or null',
+        )
+    state.playlist_catalog.set_audio_providers(
+        spotify_id=sid,
+        playlist_name=playlist_name,
+        audio_providers=providers,
+    )
+    invalidate_playlist_batch_reports_cache()
 
 
 def _setting_int(
@@ -937,11 +991,14 @@ async def _run_download(  # noqa: PLR0914
         raise RuntimeError('Downloader not ready')
 
     loop = state.loop or asyncio.get_running_loop()
+    effective_providers = _effective_playlist_audio_providers(
+        spotify_playlist_id, state.settings
+    )
     logger.info(
         'download start: title={!r} artists={} providers={}',
         song.get('name'),
         song.get('artists'),
-        getattr(state.downloader, 'audio_providers', None),
+        effective_providers,
     )
     job = state.download_jobs.get(song_id)
     if job is None:
@@ -1033,7 +1090,10 @@ async def _run_download(  # noqa: PLR0914
                     loop.run_in_executor(
                         None,
                         lambda: state.downloader.download(
-                            song, progress, subdir=subdir
+                            song,
+                            progress,
+                            subdir=subdir,
+                            audio_providers=effective_providers,
                         ),
                     ),
                     timeout=yt_timeout,
@@ -1363,6 +1423,17 @@ async def _run_process_batch(
             logger.exception(
                 'Failed to resolve playlist name for {}', playlist_url
             )
+
+    if (
+        spotify_playlist_id
+        and playlist_name
+        and state.playlist_catalog is not None
+    ):
+        await asyncio.to_thread(
+            state.playlist_catalog.ensure_playlist,
+            playlist_name,
+            spotify_id=spotify_playlist_id,
+        )
 
     if batch_id is not None and playlist_name and state.playlist_batch_store:
         await asyncio.to_thread(
@@ -1937,6 +2008,7 @@ def _build_playlist_batch_reports(
         )
     )
     _attach_monitor_state(reports)
+    _attach_playlist_provider_settings(reports)
     return reports
 
 
@@ -1967,6 +2039,19 @@ def _attach_monitor_state(reports: list[dict[str, Any]]) -> None:
             by_sid[pl.spotify_id] = pl.to_dict()
     for row in reports:
         row['monitor'] = by_sid.get(str(row.get('spotify_playlist_id') or ''))
+
+
+def _attach_playlist_provider_settings(reports: list[dict[str, Any]]) -> None:
+    """Add per-playlist audio provider override + effective chain."""
+
+    settings = state.settings
+    for row in reports:
+        sid = str(row.get('spotify_playlist_id') or '').strip()
+        override = _playlist_audio_providers_override(sid)
+        row['audio_providers_override'] = override
+        row['audio_providers'] = _effective_playlist_audio_providers(
+            sid, settings
+        )
 
 
 def collect_playlist_batch_sync_rows() -> list[dict[str, Any]]:
@@ -2333,6 +2418,8 @@ async def download_batch_endpoint(request: Request) -> dict[str, Any]:
     generate_m3u = bool(payload.get('generate_m3u', True))
 
     batch_id: Optional[int] = None
+    spotify_playlist_id: Optional[str] = None
+    playlist_name = ''
     parsed = spotify.parse_spotify_url(playlist_url) if playlist_url else None
     if (
         parsed is not None
@@ -2349,6 +2436,14 @@ async def download_batch_endpoint(request: Request) -> dict[str, Any]:
             playlist_name,
             playlist_url,
             len(songs),
+        )
+
+    if spotify_playlist_id and 'audio_providers' in payload:
+        await asyncio.to_thread(
+            _save_playlist_audio_providers,
+            spotify_playlist_id,
+            playlist_name or spotify_playlist_id,
+            payload.get('audio_providers'),
         )
 
     return await _submit_playlist_batch(
@@ -2384,7 +2479,50 @@ async def get_playlist_batch_detail_endpoint(
     )
     if report is None:
         raise HTTPException(status_code=404, detail='Playlist not found')
+    _attach_monitor_state([report])
+    _attach_playlist_provider_settings([report])
     return report
+
+
+@router.patch('/api/playlists/batches/{spotify_playlist_id}/settings')
+async def patch_playlist_settings_endpoint(
+    spotify_playlist_id: str, request: Request
+) -> dict[str, Any]:
+    """Set per-playlist download provider order (null = use global default)."""
+
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid JSON') from exc
+
+    if 'audio_providers' not in payload:
+        raise HTTPException(
+            status_code=400, detail='audio_providers field required'
+        )
+
+    sid = str(spotify_playlist_id or '').strip()
+    if not sid:
+        raise HTTPException(
+            status_code=400, detail='spotify_playlist_id required'
+        )
+
+    meta = _known_spotify_playlist_sources().get(sid)
+    playlist_name = (
+        str(meta.get('playlist_name') or sid) if meta is not None else sid
+    )
+    await asyncio.to_thread(
+        _save_playlist_audio_providers,
+        sid,
+        playlist_name,
+        payload.get('audio_providers'),
+    )
+    return {
+        'spotify_playlist_id': sid,
+        'audio_providers_override': _playlist_audio_providers_override(sid),
+        'audio_providers': _effective_playlist_audio_providers(
+            sid, state.settings
+        ),
+    }
 
 
 def _purge_playlist_tracking(spotify_playlist_id: str) -> None:

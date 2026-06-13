@@ -1,7 +1,5 @@
 <template>
   <div class="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-    <IncompletePlaylists @download="(song) => emit('download', song)" />
-
     <!-- Header -->
     <div class="mb-8">
       <h1 class="text-2xl font-bold tracking-tight">
@@ -47,27 +45,42 @@
           sm.playlistUrl.value &&
           !sm.isSearching.value
         "
-        class="mt-4 flex flex-wrap gap-2"
+        class="mt-4 space-y-3"
       >
-        <a
-          class="btn btn-sm btn-ghost rounded-full"
-          :href="sm.playlistUrl.value"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Icon icon="clarity:pop-out-line" class="h-4 w-4" />
-          {{ t('search.openPlaylistOnSpotify') }}
-        </a>
-        <button
-          v-if="(props.data?.length || 0) > 0"
-          type="button"
-          class="btn btn-sm btn-primary rounded-full"
-          :disabled="dm.loading.value"
-          @click="downloadEntirePlaylist"
-        >
-          <Icon icon="clarity:download-line" class="h-4 w-4" />
-          {{ t('search.downloadEntirePlaylist') }}
-        </button>
+        <div class="surface rounded-2xl p-4">
+          <p
+            class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+          >
+            {{ t('monitor.audioSources') }}
+          </p>
+          <AudioProvidersPicker
+            :model-value="playlistAudioProviders"
+            :global-providers="globalAudioProviders"
+            :slskd-enabled="slskdEnabled"
+            @update:model-value="onPlaylistProvidersChange"
+          />
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a
+            class="btn btn-sm btn-ghost rounded-full"
+            :href="sm.playlistUrl.value"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Icon icon="clarity:pop-out-line" class="h-4 w-4" />
+            {{ t('search.openPlaylistOnSpotify') }}
+          </a>
+          <button
+            v-if="(props.data?.length || 0) > 0"
+            type="button"
+            class="btn btn-sm btn-primary rounded-full"
+            :disabled="dm.loading.value"
+            @click="downloadEntirePlaylist"
+          >
+            <Icon icon="clarity:download-line" class="h-4 w-4" />
+            {{ t('search.downloadEntirePlaylist') }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -230,8 +243,10 @@ import { Icon } from '@iconify/vue'
 import { useRouter } from 'vue-router'
 import { useSearchManager } from '../model/search'
 import { useProgressTracker, useDownloadManager } from '../model/download'
+import { useSettingsManager } from '../model/settings'
+import API from '../model/api'
 import { useI18n } from '../i18n'
-import IncompletePlaylists from './IncompletePlaylists.vue'
+import AudioProvidersPicker from './AudioProvidersPicker.vue'
 
 const PAGE_SIZE = 10
 
@@ -242,7 +257,16 @@ const router = useRouter()
 const sm = useSearchManager()
 const pt = useProgressTracker()
 const dm = useDownloadManager()
+const settingsManager = useSettingsManager()
 const { t } = useI18n()
+
+const playlistAudioProviders = ref(null)
+const globalAudioProviders = computed(
+  () => settingsManager.settings.value.audio_providers || ['youtube-music']
+)
+const slskdEnabled = computed(() =>
+  Boolean(settingsManager.settings.value.slskd?.enabled)
+)
 
 const currentPage = ref(1)
 
@@ -262,6 +286,47 @@ watch(
     currentPage.value = 1
   }
 )
+
+watch(
+  () => [sm.browseKind.value, sm.isSearching.value, sm.playlistUrl.value],
+  ([kind, searching, url]) => {
+    playlistAudioProviders.value = null
+    if (kind === 'spotify_playlist' && url && !searching) {
+      void loadSavedPlaylistProviders()
+    }
+  },
+  { immediate: true }
+)
+
+function playlistSpotifyId() {
+  const url = String(sm.playlistUrl.value || '')
+  const match = url.match(/playlist\/([a-zA-Z0-9]+)/i)
+  return match ? match[1] : ''
+}
+
+async function loadSavedPlaylistProviders() {
+  const sid = playlistSpotifyId()
+  if (!sid) return
+  try {
+    const res = await API.getPlaylistBatchDetails(sid, { tracks: false })
+    if (res.status === 200) {
+      playlistAudioProviders.value = res.data?.audio_providers_override ?? null
+    }
+  } catch {
+    playlistAudioProviders.value = null
+  }
+}
+
+async function onPlaylistProvidersChange(value) {
+  playlistAudioProviders.value = value
+  const sid = playlistSpotifyId()
+  if (!sid) return
+  try {
+    await API.patchPlaylistSettings(sid, { audio_providers: value })
+  } catch (e) {
+    console.error('playlist provider update failed:', e)
+  }
+}
 
 function artistsOf(song) {
   if (Array.isArray(song.artists) && song.artists.length) {
@@ -289,6 +354,13 @@ function downloadState(song) {
 }
 
 function download(song) {
+  if (sm.browseKind.value === 'spotify_playlist' && sm.playlistUrl.value) {
+    emit('download', {
+      ...song,
+      downtify_playlist_url: sm.playlistUrl.value,
+    })
+    return
+  }
   emit('download', song)
 }
 
@@ -296,6 +368,6 @@ function downloadEntirePlaylist() {
   const url = sm.playlistUrl.value
   if (!url) return
   router.push({ name: 'Download' })
-  void dm.fromURL(url)
+  void dm.fromURL(url, { audio_providers: playlistAudioProviders.value })
 }
 </script>
