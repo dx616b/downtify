@@ -197,6 +197,7 @@ export default {
     checkTimeHint:
       'Hora del día para revisiones diarias o más largas — usa la zona horaria local de tu navegador.',
     info: 'La vigilancia automática actualiza la lista desde Spotify y encola las pistas que aún no están en tu biblioteca. Cuando todo está en la biblioteca, las revisiones pasan a una vez por semana hasta que falte algo. En intervalos diarios o más largos puedes elegir una hora. Usa Descargar pendientes para reintentar fallos al momento.',
+    audioSources: 'Fuentes de descarga',
     every15: 'Cada 15 min',
     every30: 'Cada 30 min',
     every1h: 'Cada hora',
@@ -229,6 +230,12 @@ export default {
     timeMinAgo: 'hace {n} min',
     timeHourAgo: 'hace {n} h',
     timeDayAgo: 'hace {n} día(s)',
+  },
+  playlistProviders: {
+    useGlobal: 'Usar fuentes de descarga globales',
+    usingGlobal: 'Usando global: {chain}',
+    customHint:
+      'Prueba las fuentes en orden hasta que una funcione para esta lista.',
   },
   settings: {
     title: 'Ajustes',

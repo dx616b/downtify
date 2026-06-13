@@ -58,9 +58,7 @@ def test_prune_queue_after_batch_clears_done_and_broadcasts():
     api.state.download_jobs.clear()
     try:
         api._register_job({'song_id': 'done-1', 'name': 'A'}, status='done')
-        api._register_job(
-            {'song_id': 'q-1', 'name': 'B'}, status='queued'
-        )
+        api._register_job({'song_id': 'q-1', 'name': 'B'}, status='queued')
         api.state.connections.broadcast = AsyncMock()
 
         removed = asyncio.run(api._prune_queue_after_batch())
@@ -68,9 +66,10 @@ def test_prune_queue_after_batch_clears_done_and_broadcasts():
         assert removed == 1
         assert 'done-1' not in api.state.download_jobs
         assert 'q-1' in api.state.download_jobs
-        api.state.connections.broadcast.assert_awaited_once_with(
-            {'status': 'playlist_batches_changed', 'queue_pruned': 1}
-        )
+        api.state.connections.broadcast.assert_awaited_once_with({
+            'status': 'playlist_batches_changed',
+            'queue_pruned': 1,
+        })
     finally:
         api.state.download_jobs.clear()
 
@@ -78,16 +77,15 @@ def test_prune_queue_after_batch_clears_done_and_broadcasts():
 def test_prune_queue_after_batch_broadcasts_when_nothing_to_clear():
     api.state.download_jobs.clear()
     try:
-        api._register_job(
-            {'song_id': 'q-1', 'name': 'B'}, status='queued'
-        )
+        api._register_job({'song_id': 'q-1', 'name': 'B'}, status='queued')
         api.state.connections.broadcast = AsyncMock()
 
         removed = asyncio.run(api._prune_queue_after_batch())
 
         assert removed == 0
-        api.state.connections.broadcast.assert_awaited_once_with(
-            {'status': 'playlist_batches_changed', 'queue_pruned': 0}
-        )
+        api.state.connections.broadcast.assert_awaited_once_with({
+            'status': 'playlist_batches_changed',
+            'queue_pruned': 0,
+        })
     finally:
         api.state.download_jobs.clear()

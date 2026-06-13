@@ -333,10 +333,13 @@ def refresh_playlists_after_moves(  # noqa: PLR0914
             song['filename'] = filename
             song = enrich_song_from_library_file(song, download_dir, slskd_dir)
             if not spotify_aligns_with_file_tags(song):
-                if mismatch_delete is not None and delete_if_spotify_tag_mismatch(
-                    song,
-                    mismatch_delete,
-                    playlist_name=name,
+                if (
+                    mismatch_delete is not None
+                    and delete_if_spotify_tag_mismatch(
+                        song,
+                        mismatch_delete,
+                        playlist_name=name,
+                    )
                 ):
                     continue
             entries.append({

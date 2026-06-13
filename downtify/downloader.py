@@ -933,6 +933,8 @@ class Downloader:
         self,
         song: dict[str, Any],
         progress_cb: Optional[ProgressCallback] = None,
+        *,
+        audio_providers: Optional[list[str]] = None,
     ) -> tuple[
         Optional[str], Optional[dict[str, Any]], Optional[str], Optional[Path]
     ]:
@@ -940,6 +942,12 @@ class Downloader:
 
         Returns ``(video_id, ytm_match, provider_used, local_file_path)``.
         """
+
+        providers = (
+            self._normalize_audio_providers(audio_providers)
+            if audio_providers is not None
+            else self.audio_providers
+        )
 
         if progress_cb is not None:
             try:
@@ -968,7 +976,7 @@ class Downloader:
             return None, None, None, None
 
         tried_ytdlp = False
-        for provider in self.audio_providers:
+        for provider in providers:
             if provider == 'youtube-music':
                 if progress_cb is not None:
                     try:
@@ -1030,10 +1038,10 @@ class Downloader:
                         song.get('name'),
                     )
                     continue
-                slskd_idx = self.audio_providers.index('slskd')
+                slskd_idx = providers.index('slskd')
                 has_fallback = any(
                     p in {'youtube-music', 'youtube'}
-                    for p in self.audio_providers[slskd_idx + 1 :]
+                    for p in providers[slskd_idx + 1 :]
                 )
                 local = download_from_slskd(
                     song, self.slskd_settings, progress_cb=progress_cb
@@ -1063,7 +1071,7 @@ class Downloader:
                     song.get('name'),
                 )
 
-        if not tried_ytdlp and 'youtube-music' in self.audio_providers:
+        if not tried_ytdlp and 'youtube-music' in providers:
             if progress_cb is not None:
                 try:
                     progress_cb(
@@ -1196,10 +1204,16 @@ class Downloader:
             if fetched is not None:
                 try:
                     embed_lyrics(final_path, fetched)
+                    logger.info('Embedded lyrics into {}', final_path.name)
                 except Exception:
                     logger.exception(
                         'Failed to embed lyrics into {}', final_path
                     )
+            else:
+                logger.debug(
+                    'No lyrics found for {!r}',
+                    song.get('name') or final_path.stem,
+                )
 
         if progress_cb:
             label = _provider_display_name(provider)
@@ -1211,6 +1225,8 @@ class Downloader:
         song: dict[str, Any],
         progress_cb: Optional[ProgressCallback] = None,
         subdir: Optional[str] = None,
+        *,
+        audio_providers: Optional[list[str]] = None,
     ) -> str:
         """Download ``song`` and return the resulting file name.
 
@@ -1232,7 +1248,11 @@ class Downloader:
         if not video_id:
             song = spotify_mod.enrich_track_from_spotify_if_sparse(song)
             video_id, match, provider, local_source_path = (
-                self._resolve_video_id(song, progress_cb=progress_cb)
+                self._resolve_video_id(
+                    song,
+                    progress_cb=progress_cb,
+                    audio_providers=audio_providers,
+                )
             )
         elif not song.get('album_name') or not song.get('cover_url'):
             # We already have a target video, but the metadata is incomplete.

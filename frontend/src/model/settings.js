@@ -61,7 +61,7 @@ const settings = ref({
 
 const settingsOptions = {
   audio_providers: ['youtube', 'youtube-music', 'slskd'],
-  lyrics_providers: ['lrclib', 'genius', 'musixmatch', 'azlyrics'],
+  lyrics_providers: ['lrclib'],
   format: ['mp3', 'flac', 'ogg', 'opus', 'm4a'],
   bitrate: ['128', '192', '256', '320'],
   max_parallel_downloads: [1, 2, 3, 5, 8],

@@ -23,7 +23,9 @@ from .track_index import TrackIndex
 
 MONITOR_LOOP_INTERVAL = 60  # seconds between loop sweeps
 CALENDAR_INTERVAL_MINUTES = 1440  # daily+ schedules can use a time-of-day
-COMPLETE_INTERVAL_MINUTES = 10080  # auto-relax when playlist is fully in library
+COMPLETE_INTERVAL_MINUTES = (
+    10080  # auto-relax when playlist is fully in library
+)
 
 
 def _now_iso() -> str:
@@ -122,7 +124,10 @@ def next_scheduled_run(
     tz = _resolve_schedule_tz(check_timezone)
     now = datetime.now(tz)
     after = _parse_checked_at(last_checked, tz) or now
-    if check_at_minutes is None or interval_minutes < CALENDAR_INTERVAL_MINUTES:
+    if (
+        check_at_minutes is None
+        or interval_minutes < CALENDAR_INTERVAL_MINUTES
+    ):
         return after + timedelta(minutes=interval_minutes)
     period_days = max(1, interval_minutes // CALENDAR_INTERVAL_MINUTES)
     day = after.date()
@@ -556,7 +561,10 @@ async def check_playlist(
             queued,
             playlist.name,
         )
-    elif expected > 0 and updates.get('interval_minutes') == COMPLETE_INTERVAL_MINUTES:
+    elif (
+        expected > 0
+        and updates.get('interval_minutes') == COMPLETE_INTERVAL_MINUTES
+    ):
         logger.info(
             'Playlist "{}" is complete — check interval relaxed to 1 week',
             playlist.name,

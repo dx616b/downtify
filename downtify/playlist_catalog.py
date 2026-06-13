@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +65,84 @@ class PlaylistCatalog:
                 ON playlist_tracks (content_key)
                 WHERE content_key IS NOT NULL
             """)
+            self._migrate_audio_providers_column(conn)
+
+    @staticmethod
+    def _migrate_audio_providers_column(conn: sqlite3.Connection) -> None:
+        try:
+            conn.execute(
+                'ALTER TABLE playlists ADD COLUMN audio_providers TEXT'
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _parse_audio_providers(raw: Any) -> Optional[list[str]]:
+        if raw is None:
+            return None
+        if isinstance(raw, list):
+            providers = [str(p).strip() for p in raw if str(p).strip()]
+            return providers or None
+        text = str(raw).strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(parsed, list):
+            return None
+        providers = [str(p).strip() for p in parsed if str(p).strip()]
+        return providers or None
+
+    @staticmethod
+    def _encode_audio_providers(
+        providers: Optional[list[str]],
+    ) -> Optional[str]:
+        if providers is None:
+            return None
+        cleaned = [str(p).strip() for p in providers if str(p).strip()]
+        if not cleaned:
+            return None
+        return json.dumps(cleaned)
+
+    def get_audio_providers(self, spotify_id: str) -> Optional[list[str]]:
+        """Return per-playlist provider override, or ``None`` for global default."""
+
+        sid = str(spotify_id or '').strip()
+        if not sid:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                'SELECT audio_providers FROM playlists WHERE spotify_id = ?',
+                (sid,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._parse_audio_providers(row['audio_providers'])
+
+    def set_audio_providers(
+        self,
+        *,
+        spotify_id: str,
+        playlist_name: str = '',
+        audio_providers: Optional[list[str]] = None,
+    ) -> None:
+        """Persist provider override; ``None`` or ``[]`` clears it."""
+
+        sid = str(spotify_id or '').strip()
+        if not sid:
+            return
+        pl_name = str(playlist_name or '').strip() or sid
+        encoded = self._encode_audio_providers(audio_providers)
+        self.ensure_playlist(pl_name, spotify_id=sid)
+        with self._connect() as conn:
+            conn.execute(
+                """UPDATE playlists
+                   SET audio_providers = ?, updated_at = ?
+                   WHERE spotify_id = ?""",
+                (encoded, _now_iso(), sid),
+            )
 
     def ensure_playlist(
         self, name: str, *, spotify_id: Optional[str] = None
@@ -184,7 +263,7 @@ class PlaylistCatalog:
 
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT p.name, p.spotify_id,
+                """SELECT p.name, p.spotify_id, p.audio_providers,
                           (SELECT COUNT(*) FROM playlist_tracks pt
                            WHERE pt.playlist_name = p.name) AS track_count
                    FROM playlists p
@@ -196,6 +275,9 @@ class PlaylistCatalog:
                 'name': str(row['name']),
                 'spotify_id': str(row['spotify_id']),
                 'track_count': int(row['track_count'] or 0),
+                'audio_providers': self._parse_audio_providers(
+                    row['audio_providers']
+                ),
             }
             for row in rows
         ]

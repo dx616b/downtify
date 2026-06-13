@@ -1,5 +1,5 @@
 <template>
-  <div class="mb-8">
+  <div>
     <div
       v-if="loadError"
       class="surface rounded-2xl p-4 mb-3 text-sm text-error flex gap-2 items-center"
@@ -19,40 +19,21 @@
     </div>
 
     <div
-      v-else-if="openPlaylists.length > 0"
-      class="surface rounded-2xl p-4 sm:p-5"
+      v-else-if="playlists.length === 0"
+      class="surface rounded-2xl p-12 flex flex-col items-center text-center"
     >
-      <button
-        type="button"
-        class="flex w-full items-start gap-2 text-left"
-        :aria-expanded="sectionOpen"
-        @click="sectionOpen = !sectionOpen"
-      >
-        <Icon
-          icon="clarity:angle-line"
-          class="h-4 w-4 shrink-0 mt-0.5 transition-transform text-base-content/60"
-          :class="sectionOpen ? 'rotate-90' : '-rotate-90'"
-        />
-        <span class="min-w-0 flex-1">
-          <span class="text-sm font-semibold block">
-            {{ t('search.playlistBatchesTitle') }}
-          </span>
-          <span class="text-xs text-base-content/50 block mt-0.5">
-            {{ t('search.playlistBatchesHint') }}
-          </span>
-        </span>
-        <span
-          class="inline-flex h-4 w-4 shrink-0 mt-1 items-center justify-center"
-          aria-hidden="true"
-        >
-          <span
-            class="loading loading-spinner loading-xs"
-            :class="refreshing ? 'opacity-100' : 'opacity-0'"
-          />
-        </span>
-      </button>
+      <Icon
+        icon="clarity:music-note-line"
+        class="h-12 w-12 text-base-content/20 mb-4"
+      />
+      <p class="text-base-content/50 text-sm">{{ t('monitor.empty') }}</p>
+      <p class="text-base-content/40 text-xs mt-1">
+        {{ t('monitor.emptyHint') }}
+      </p>
+    </div>
 
-      <div v-show="sectionOpen" class="mt-4 space-y-3">
+    <div v-else class="surface rounded-2xl p-4 sm:p-5">
+      <div class="space-y-3">
         <div class="flex flex-wrap items-center gap-2">
           <div class="relative min-w-[12rem] flex-1">
             <Icon
@@ -90,6 +71,15 @@
           >
             {{ t('search.playlistBatchesCollapseAll') }}
           </button>
+          <span
+            class="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+            aria-hidden="true"
+          >
+            <span
+              class="loading loading-spinner loading-xs"
+              :class="refreshing ? 'opacity-100' : 'opacity-0'"
+            />
+          </span>
         </div>
 
         <p
@@ -144,11 +134,28 @@
                   />
                 </span>
                 <span class="min-w-0">
-                  <span
-                    class="font-medium truncate block"
-                    :title="pl.playlist_name"
-                  >
-                    {{ pl.playlist_name }}
+                  <span class="flex items-center gap-2 min-w-0">
+                    <span
+                      class="font-medium truncate block"
+                      :title="pl.playlist_name"
+                    >
+                      {{ pl.playlist_name }}
+                    </span>
+                    <span
+                      v-if="isWatched(pl)"
+                      class="pill shrink-0 text-[10px]"
+                      :class="
+                        pl.monitor?.enabled
+                          ? 'badge-soft'
+                          : 'badge-neutral-soft'
+                      "
+                    >
+                      {{
+                        pl.monitor?.enabled
+                          ? t('monitor.active')
+                          : t('monitor.paused')
+                      }}
+                    </span>
                   </span>
                   <span class="text-xs text-base-content/60 block truncate">
                     {{ playlistSummary(displayPl(pl)) }}
@@ -214,6 +221,94 @@
               v-if="isExpanded(pl.spotify_playlist_id)"
               class="border-t border-white/5"
             >
+              <div class="px-4 py-3 border-b border-white/5 space-y-3">
+                <p
+                  class="text-xs font-semibold uppercase tracking-wider text-base-content/50"
+                >
+                  {{ t('monitor.watchNew') }}
+                </p>
+                <label
+                  class="flex items-center gap-2 cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-primary toggle-sm"
+                    :checked="!!pl.monitor?.enabled"
+                    :disabled="!!toggling[pl.spotify_playlist_id]"
+                    @change="onToggleWatch(pl, $event)"
+                  />
+                  <span class="text-sm text-base-content/80">{{
+                    t('monitor.watchNew')
+                  }}</span>
+                </label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <select
+                    :value="scheduleFor(pl).interval_minutes"
+                    class="filter-select-xs shrink-0"
+                    @change="onChangeInterval(pl, $event)"
+                  >
+                    <option :value="15">{{ t('monitor.short15') }}</option>
+                    <option :value="30">{{ t('monitor.short30') }}</option>
+                    <option :value="60">{{ t('monitor.short1h') }}</option>
+                    <option :value="180">{{ t('monitor.short3h') }}</option>
+                    <option :value="360">{{ t('monitor.short6h') }}</option>
+                    <option :value="720">{{ t('monitor.short12h') }}</option>
+                    <option :value="1440">{{ t('monitor.short1d') }}</option>
+                    <option :value="10080">{{ t('monitor.short1w') }}</option>
+                    <option :value="20160">{{ t('monitor.short2w') }}</option>
+                    <option :value="43200">{{ t('monitor.short1mo') }}</option>
+                  </select>
+                  <input
+                    v-if="usesCheckTime(activeInterval(pl))"
+                    type="time"
+                    class="filter-time-xs shrink-0"
+                    :value="scheduleFor(pl).check_time"
+                    :title="t('monitor.checkTimeHint')"
+                    @change="onChangeCheckTime(pl, $event)"
+                  />
+                  <button
+                    v-if="pl.monitor?.enabled"
+                    type="button"
+                    class="icon-btn"
+                    :title="t('monitor.checkNow')"
+                    :disabled="!!checking[pl.spotify_playlist_id]"
+                    @click="onCheck(pl)"
+                  >
+                    <span
+                      v-if="checking[pl.spotify_playlist_id]"
+                      class="loading loading-spinner loading-xs"
+                    />
+                    <Icon v-else icon="clarity:refresh-line" class="h-4 w-4" />
+                  </button>
+                </div>
+                <p
+                  v-if="pl.monitor?.enabled"
+                  class="text-xs text-base-content/50"
+                >
+                  {{ scheduleLabel(pl) }}
+                  <template v-if="pl.monitor.last_checked">
+                    ·
+                    {{
+                      t('monitor.checked', {
+                        when: timeAgo(pl.monitor.last_checked),
+                      })
+                    }}
+                  </template>
+                </p>
+              </div>
+              <div class="px-4 py-3 border-b border-white/5">
+                <p
+                  class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+                >
+                  {{ t('monitor.audioSources') }}
+                </p>
+                <AudioProvidersPicker
+                  :model-value="pl.audio_providers_override"
+                  :global-providers="globalAudioProviders"
+                  :slskd-enabled="slskdEnabled"
+                  @update:model-value="(value) => onProviderChange(pl, value)"
+                />
+              </div>
               <div
                 v-if="isTracksLoading(pl)"
                 class="flex flex-col items-center justify-center gap-2 px-4 py-8"
@@ -285,16 +380,6 @@
         </ul>
       </div>
     </div>
-
-    <div
-      v-else-if="!loading"
-      class="surface rounded-2xl p-6 text-center text-sm text-base-content/50"
-    >
-      <p>{{ t('search.playlistBatchesEmpty') }}</p>
-      <p class="text-xs mt-2 text-base-content/40">
-        {{ t('search.playlistBatchesEmptyHint') }}
-      </p>
-    </div>
   </div>
 </template>
 
@@ -302,7 +387,9 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import AudioProvidersPicker from './AudioProvidersPicker.vue'
 import API from '../model/api'
+import monitorAPI from '../model/monitor.js'
 import {
   onPlaylistBatchesChanged,
   pruneCompletedQueue,
@@ -314,6 +401,13 @@ import {
   usePlayer,
 } from '../model/player'
 import { useI18n } from '../i18n'
+import { useSettingsManager } from '../model/settings'
+
+const sm = useSettingsManager()
+const globalAudioProviders = computed(
+  () => sm.settings.value.audio_providers || ['youtube-music']
+)
+const slskdEnabled = computed(() => Boolean(sm.settings.value.slskd?.enabled))
 
 const emit = defineEmits(['download'])
 
@@ -321,17 +415,22 @@ const { t } = useI18n()
 const router = useRouter()
 const player = usePlayer()
 
+const CALENDAR_INTERVAL_MINUTES = 1440
+const DEFAULT_DAILY_CHECK_TIME = '03:00'
+
 const playlists = ref([])
 const loading = ref(true)
 const refreshing = ref(false)
 const loadError = ref('')
-const sectionOpen = ref(false)
 const filterQuery = ref('')
 const expanded = reactive({})
 const playlistDetails = reactive({})
 const downloadingMissing = ref(null)
 const deletingPlaylist = ref(null)
 const playingPlaylist = ref(null)
+const toggling = ref({})
+const checking = ref({})
+const preferredSchedule = ref({})
 let refreshTimer = null
 let verifyTimer = null
 let progressRefreshTimer = null
@@ -672,7 +771,7 @@ async function refreshPlaylists() {
       expanded[pl.spotify_playlist_id] = false
     }
   } catch (e) {
-    loadError.value = t('search.playlistBatchesLoadFailed')
+    loadError.value = t('monitor.failedAdd')
     console.log('Failed to load playlist batches:', e)
   } finally {
     loading.value = false
@@ -697,21 +796,216 @@ function effectiveStatus(pl) {
   return row.status || 'incomplete'
 }
 
-function playlistNeedsAttention(pl) {
-  return effectiveStatus(displayPl(pl)) !== 'complete'
-}
-
-const openPlaylists = computed(() =>
-  playlists.value.filter((pl) => playlistNeedsAttention(pl))
-)
-
 const filteredPlaylists = computed(() => {
   const query = filterQuery.value.trim().toLowerCase()
   if (!query) {
-    return openPlaylists.value
+    return playlists.value
   }
-  return openPlaylists.value.filter((pl) => playlistMatchesQuery(pl, query))
+  return playlists.value.filter((pl) => playlistMatchesQuery(pl, query))
 })
+
+function isWatched(pl) {
+  return pl.monitor != null
+}
+
+function usesCheckTime(intervalMinutes) {
+  return intervalMinutes >= CALENDAR_INTERVAL_MINUTES
+}
+
+function activeInterval(pl) {
+  return pl.monitor?.interval_minutes ?? 60
+}
+
+function preferredInterval(pl) {
+  const sid = pl.spotify_playlist_id
+  const mon = pl.monitor
+  const local = preferredSchedule.value[sid] || {}
+  return (
+    mon?.preferred_interval_minutes ??
+    local.interval_minutes ??
+    mon?.interval_minutes ??
+    60
+  )
+}
+
+function scheduleFor(pl) {
+  const sid = pl.spotify_playlist_id
+  const mon = pl.monitor
+  const preferred = preferredSchedule.value[sid] || {}
+  const interval = preferredInterval(pl)
+  let checkTime = mon?.check_time ?? preferred.check_time ?? ''
+  if (usesCheckTime(activeInterval(pl)) && !checkTime) {
+    checkTime = DEFAULT_DAILY_CHECK_TIME
+  }
+  return { interval_minutes: interval, check_time: checkTime }
+}
+
+function rememberSchedule(sid, { interval_minutes, check_time }) {
+  preferredSchedule.value = {
+    ...preferredSchedule.value,
+    [sid]: { interval_minutes, check_time },
+  }
+}
+
+function monitorPayload(
+  pl,
+  { enabled, interval_minutes, check_time, updateInterval = true }
+) {
+  const payload = {
+    spotify_playlist_id: pl.spotify_playlist_id,
+    enabled,
+  }
+  if (updateInterval) {
+    payload.interval_minutes = interval_minutes
+  }
+  if (usesCheckTime(activeInterval(pl)) && check_time) {
+    payload.check_time = check_time
+    payload.check_timezone =
+      pl.monitor?.check_timezone || monitorAPI.browserTimezone()
+  }
+  return payload
+}
+
+async function onToggleWatch(pl, event) {
+  const enabled = event.target.checked
+  const sid = pl.spotify_playlist_id
+  const schedule = scheduleFor(pl)
+  toggling.value = { ...toggling.value, [sid]: true }
+  try {
+    const res = await monitorAPI.upsertMonitoredPlaylist(
+      monitorPayload(pl, { enabled, ...schedule })
+    )
+    pl.monitor = res.data
+    rememberSchedule(sid, schedule)
+  } catch {
+    event.target.checked = !enabled
+  } finally {
+    toggling.value = { ...toggling.value, [sid]: false }
+  }
+}
+
+async function onChangeInterval(pl, event) {
+  const val = parseInt(event.target.value, 10)
+  const sid = pl.spotify_playlist_id
+  const prev = scheduleFor(pl)
+  const check_time = usesCheckTime(val)
+    ? prev.check_time || DEFAULT_DAILY_CHECK_TIME
+    : ''
+  rememberSchedule(sid, { interval_minutes: val, check_time })
+  if (!pl.monitor?.id) return
+  try {
+    const res = await monitorAPI.updateMonitoredPlaylist(
+      pl.monitor.id,
+      monitorPayload(pl, {
+        enabled: true,
+        interval_minutes: val,
+        check_time,
+      })
+    )
+    pl.monitor = res.data
+  } catch {
+    // ignore
+  }
+}
+
+async function onChangeCheckTime(pl, event) {
+  const check_time = event.target.value
+  const sid = pl.spotify_playlist_id
+  const { interval_minutes } = scheduleFor(pl)
+  rememberSchedule(sid, { interval_minutes, check_time })
+  if (!pl.monitor?.id) return
+  try {
+    const res = await monitorAPI.updateMonitoredPlaylist(
+      pl.monitor.id,
+      monitorPayload(pl, {
+        enabled: true,
+        interval_minutes,
+        check_time,
+        updateInterval: false,
+      })
+    )
+    pl.monitor = res.data
+  } catch {
+    // ignore
+  }
+}
+
+async function onCheck(pl) {
+  const id = pl.monitor?.id
+  if (!id) return
+  const sid = pl.spotify_playlist_id
+  checking.value = { ...checking.value, [sid]: true }
+  try {
+    await monitorAPI.checkMonitoredPlaylist(id)
+    setTimeout(() => {
+      refreshPlaylists().catch(() => {})
+    }, 3000)
+  } finally {
+    checking.value = { ...checking.value, [sid]: false }
+  }
+}
+
+function scheduleLabel(pl) {
+  const interval_minutes = activeInterval(pl)
+  const { check_time } = scheduleFor(pl)
+  const interval = formatInterval(interval_minutes)
+  if (pl.monitor?.interval_relaxed) {
+    if (usesCheckTime(interval_minutes) && check_time) {
+      return t('monitor.everyIntervalAtWhileComplete', {
+        interval,
+        time: check_time,
+      })
+    }
+    return t('monitor.everyIntervalWhileComplete', { interval })
+  }
+  if (usesCheckTime(interval_minutes) && check_time) {
+    return t('monitor.everyIntervalAt', { interval, time: check_time })
+  }
+  return t('monitor.everyInterval', { interval })
+}
+
+function formatInterval(minutes) {
+  if (minutes < 60) return `${minutes} ${t('monitor.minSuffix')}`
+  if (minutes < 1440) return `${minutes / 60} ${t('monitor.hourSuffix')}`
+  if (minutes < 10080) {
+    const days = minutes / 1440
+    return `${days} ${days === 1 ? t('monitor.daySuffix') : t('monitor.daysSuffix')}`
+  }
+  if (minutes < 43200) {
+    const weeks = minutes / 10080
+    return `${weeks} ${weeks === 1 ? t('monitor.weekSuffix') : t('monitor.weeksSuffix')}`
+  }
+  const months = Math.round(minutes / 43200)
+  return `${months} ${months === 1 ? t('monitor.monthSuffix') : t('monitor.monthsSuffix')}`
+}
+
+function timeAgo(isoString) {
+  try {
+    const diff = Date.now() - new Date(isoString).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return t('monitor.timeJustNow')
+    if (mins < 60) return t('monitor.timeMinAgo', { n: mins })
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return t('monitor.timeHourAgo', { n: hrs })
+    return t('monitor.timeDayAgo', { n: Math.floor(hrs / 24) })
+  } catch {
+    return ''
+  }
+}
+
+async function onProviderChange(pl, value) {
+  const id = pl.spotify_playlist_id
+  try {
+    const res = await API.patchPlaylistSettings(id, {
+      audio_providers: value,
+    })
+    pl.audio_providers_override = res.data.audio_providers_override
+    pl.audio_providers = res.data.audio_providers
+  } catch (e) {
+    console.error('playlist provider update failed:', e)
+    await refreshPlaylists()
+  }
+}
 
 function playlistSummary(pl) {
   return t('search.incompleteSummary', {

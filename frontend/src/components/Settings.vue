@@ -355,7 +355,10 @@
               </span>
             </span>
           </label>
-          <div class="flex items-baseline justify-between mb-1.5">
+          <div
+            v-if="sm.settingsOptions.lyrics_providers.length > 1"
+            class="flex items-baseline justify-between mb-1.5"
+          >
             <span class="text-xs text-base-content/50">
               {{ t('settings.lyricsProvider') }}
             </span>
@@ -364,6 +367,7 @@
             </span>
           </div>
           <select
+            v-if="sm.settingsOptions.lyrics_providers.length > 1"
             class="select w-full rounded-xl bg-base-100/85 border border-white/10 focus:border-primary/60 disabled:opacity-40"
             v-model="sm.settings.value.lyrics_providers[0]"
             :disabled="!sm.settings.value.download_lyrics"

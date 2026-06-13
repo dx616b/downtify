@@ -10,12 +10,12 @@ RUN pip install --upgrade pip && \
 FROM python:3.13-alpine
 
 LABEL maintainer="dx616b"
-LABEL version="2.8.0"
+LABEL version="2.9.0"
 LABEL description="Self-hosted Spotify downloader with slskd and Navidrome sync"
 
 LABEL org.opencontainers.image.title="Downtify" \
       org.opencontainers.image.description="Self-hosted Spotify downloader with slskd and Navidrome sync." \
-      org.opencontainers.image.version="2.8.0" \
+      org.opencontainers.image.version="2.9.0" \
       org.opencontainers.image.authors="dx616b" \
       org.opencontainers.image.url="https://github.com/dx616b/downtify" \
       org.opencontainers.image.source="https://github.com/dx616b/downtify" \

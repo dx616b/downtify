@@ -14,28 +14,32 @@ Lyrics are **enabled by default**. You can toggle them in **Settings → Lyrics 
 
 The only active provider is **[lrclib](https://lrclib.net)** — a free, open, community-maintained lyrics database. No API key is required.
 
-lrclib is queried with the track title, primary artist, album name and duration. It returns:
+lrclib is queried with the track title, primary artist, and optionally album name and duration. It returns:
 
-- **Plain lyrics** — static text, embedded as standard lyrics tags
-- **Synced lyrics** — time-coded LRC format, embedded as a separate tag and also saved as a `.lrc` sidecar file alongside the audio
+- **Plain lyrics** — static text, embedded into the audio file's lyrics tag
+- **Synced lyrics** — time-coded LRC format, saved as a `.lrc` sidecar file next to the audio
 
 ## Embedding
 
-| Format | Plain lyrics tag | Synced lyrics tag |
-|--------|-----------------|------------------|
-| MP3 | `USLT` (ID3) | `USLT` with timestamps |
-| FLAC | `LYRICS` (Vorbis comment) | `LYRICS` with LRC content |
-| M4A | `©lyr` | `©lyr` with LRC content |
-| OGG / OPUS | `LYRICS` (Vorbis comment) | `LYRICS` with LRC content |
+Downtify writes **plain text only** into the in-file lyrics tag. When lrclib returns synced lyrics but no plain text, timestamps are stripped from the LRC content before embedding.
+
+| Format | In-file lyrics tag |
+|--------|-------------------|
+| MP3 | `USLT` (ID3 unsynchronised lyrics) |
+| FLAC | `LYRICS` (Vorbis comment) |
+| M4A | `©lyr` |
+| OGG / OPUS | `LYRICS` (Vorbis comment) |
+
+Synced LRC timestamps are **not** embedded in the audio tags. They are written to a sidecar file instead (see below).
 
 ## Sidecar .lrc file
 
-When synced lyrics are available, Downtify also saves a `.lrc` file next to the audio file with the same base name. This lets media players that support external lyrics files (like Jellyfin or certain portable players) show the time-synced lyrics independently of the embedded tags.
+When synced lyrics are available, Downtify saves a `.lrc` file next to the audio file with the same base name. Media players that support external lyrics files (Jellyfin, some portable players) can use this file for time-synced display.
 
 ## Fallback behaviour
 
-If lrclib returns no result for a track, the download continues normally — the audio file is saved without lyrics. No error is raised.
+If lrclib returns no result for a track, the download continues normally — the audio file is saved without lyrics. No error is raised. Check the server logs at debug level for `lrclib has no lyrics` messages.
 
-## Legacy providers
+## Legacy settings
 
-The settings UI may show `genius`, `musixmatch` and `azlyrics` as options inherited from an earlier version of Downtify. These are **no-ops** — selecting them has no effect. Only `lrclib` fetches real lyrics.
+Older Downtify configs may still list `genius`, `musixmatch`, or `azlyrics` in `lyrics_providers`. These identifiers are accepted as no-ops so settings round-trip cleanly, but only `lrclib` fetches real lyrics.

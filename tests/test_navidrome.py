@@ -61,7 +61,9 @@ def test_songs_for_playlist_sync_deletes_mismatched_file(tmp_path):
             'library_from_tags': True,
         },
     ]
-    del_ctx = TagMismatchDeleteContext(ctx=LibraryContext(download_dir=download_dir))
+    del_ctx = TagMismatchDeleteContext(
+        ctx=LibraryContext(download_dir=download_dir)
+    )
     kept = _songs_for_playlist_sync(
         'Albanian Car Songs',
         songs,
