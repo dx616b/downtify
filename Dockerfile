@@ -1,3 +1,5 @@
+FROM denoland/deno:alpine-2.2.3 AS deno-stage
+
 FROM python:3.13-alpine AS builder
 
 WORKDIR /build
@@ -34,6 +36,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UMASK=022
 
 WORKDIR /downtify
+
+# Deno for yt-dlp JS (glibc binary); wrapper avoids breaking Alpine ffmpeg via LD_LIBRARY_PATH.
+COPY --from=deno-stage /bin/deno /usr/local/lib/deno-bin
+COPY --from=deno-stage /usr/local/lib/ /usr/local/lib/glibc-deno/
+RUN mkdir -p /lib64 && \
+    ln -snf /usr/local/lib/glibc-deno/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'export LD_LIBRARY_PATH=/usr/local/lib/glibc-deno' \
+    'exec /usr/local/lib/deno-bin "$@"' \
+    > /usr/local/bin/deno && chmod +x /usr/local/bin/deno
 
 RUN apk add --no-cache \
     ffmpeg \

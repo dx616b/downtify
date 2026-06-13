@@ -179,6 +179,12 @@ _SUPPRESSED_YT_WARNING_FRAGMENTS = (
     'SABR-only streaming experiment',
 )
 
+_RETRYABLE_YT_ERROR_FRAGMENTS = (
+    'requested format is not available',
+    'only images are available',
+    'drm protected',
+)
+
 
 class _YtdlpLogger:
     @staticmethod
@@ -196,6 +202,10 @@ class _YtdlpLogger:
 
     @staticmethod
     def error(msg: str) -> None:
+        lowered = msg.casefold()
+        if any(frag in lowered for frag in _RETRYABLE_YT_ERROR_FRAGMENTS):
+            logger.debug('yt-dlp: {}', msg)
+            return
         logger.error('yt-dlp: {}', msg)
 
 
@@ -213,6 +223,23 @@ def ytdlp_cookies_configured(
     probe: dict[str, Any] = {}
     apply_ytdlp_cookie_opts(probe, youtube_settings)
     return 'cookiefile' in probe or 'cookiesfrombrowser' in probe
+
+
+def _ytdlp_js_runtime_opts() -> dict[str, Any]:
+    """Enable deno when present so cookie/web YouTube clients can solve JS."""
+
+    if shutil.which('deno'):
+        return {'js_runtimes': {'deno': {}}}
+    return {}
+
+
+def _ytdlp_ffmpeg_opts() -> dict[str, Any]:
+    """Point yt-dlp at ffmpeg explicitly (helps in minimal containers)."""
+
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        return {}
+    return {'ffmpeg_location': ffmpeg}
 
 
 def apply_ytdlp_cookie_opts(
@@ -249,11 +276,10 @@ def apply_ytdlp_cookie_opts(
 
 
 _COOKIE_YT_CLIENTS = (
+    'web_creator',
     'web_safari',
     'web',
-    'tv_embedded',
     'web_embedded',
-    'tv',
 )
 
 _YOUTUBE_AUTH_COOKIE_NAMES = frozenset({
@@ -330,9 +356,11 @@ def _log_youtube_cookie_health(
         )
 
 
-def _cookie_yt_player_clients() -> list[str]:
+def _cookie_yt_player_clients(
+    youtube_settings: Optional[dict[str, Any]] = None,
+) -> list[str]:
     clients: list[str] = []
-    if _yt_po_tokens():
+    if _yt_po_tokens(youtube_settings):
         clients.append('mweb')
     clients.extend(_COOKIE_YT_CLIENTS)
     return clients
@@ -344,7 +372,7 @@ def _youtube_player_clients_for_profile(
     use_cookies: bool,
 ) -> list[str]:
     if use_cookies:
-        return _cookie_yt_player_clients()
+        return _cookie_yt_player_clients(youtube_settings)
     return list(_yt_player_clients())
 
 
@@ -382,12 +410,20 @@ def _ytdlp_age_restricted_retry(exc: BaseException) -> bool:
     )
 
 
-def _yt_po_tokens() -> list[str]:
+def _yt_po_tokens(
+    youtube_settings: Optional[dict[str, Any]] = None,
+) -> list[str]:
     """Comma-separated PO Tokens, each in the form ``<client>.<context>+<token>``.
 
     Example: ``mweb.gvs+ABC123,web.gvs+XYZ987``
+
+    Settings ``youtube.po_token`` takes precedence over ``DOWNTIFY_YT_PO_TOKEN``.
     """
-    raw = os.getenv('DOWNTIFY_YT_PO_TOKEN', '').strip()
+    raw = ''
+    if youtube_settings:
+        raw = str(youtube_settings.get('po_token') or '').strip()
+    if not raw:
+        raw = os.getenv('DOWNTIFY_YT_PO_TOKEN', '').strip()
     if not raw:
         return []
     return [t.strip() for t in raw.split(',') if t.strip()]
@@ -413,12 +449,16 @@ def _youtube_extractor_args(
             use_cookies=use_cookies,
         ),
     }
-    po = _yt_po_tokens()
+    po = _yt_po_tokens(youtube_settings)
     if po:
         args['po_token'] = po
     if allow_missing_pot:
         args['formats'] = ['missing_pot']
     return args
+
+
+def _ytdlp_is_drm_protected_error(exc: BaseException) -> bool:
+    return 'drm protected' in str(exc).casefold()
 
 
 def _ytdlp_should_retry_without_cookies(
@@ -431,6 +471,7 @@ def _ytdlp_should_retry_without_cookies(
     msg = str(exc).casefold()
     return (
         _ytdlp_format_unavailable_retry(exc)
+        or _ytdlp_is_drm_protected_error(exc)
         or '403' in msg
         or 'forbidden' in msg
     )
@@ -449,6 +490,7 @@ def _ytdlp_should_try_alternate_video(exc: BaseException) -> bool:
     return (
         _ytdlp_age_restricted_retry(exc)
         or _ytdlp_format_unavailable_retry(exc)
+        or _ytdlp_is_drm_protected_error(exc)
         or '403' in msg
         or 'forbidden' in msg
         or 'sign in to confirm' in msg
@@ -522,28 +564,113 @@ def _youtube_candidate_near_acceptable(
     return abs(length - target) <= max(60, int(target * 0.25))
 
 
+def _ytdlp_base_info_opts() -> dict[str, Any]:
+    return {
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        'noplaylist': True,
+        'logger': _YtdlpLogger(),
+        **_ytdlp_js_runtime_opts(),
+        **_ytdlp_ffmpeg_opts(),
+    }
+
+
+def _ytdlp_info_profiles(
+    youtube_settings: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    """Probe/search: try ios/android clients first; cookies for age-gated fallback."""
+    profiles: list[dict[str, Any]] = [
+        {'label': 'no-cookies', 'use_cookies': False},
+    ]
+    if ytdlp_cookies_configured(youtube_settings):
+        profiles.append({'label': 'cookies+web', 'use_cookies': True})
+    return profiles
+
+
+def _ytdlp_extract_info(
+    url: str,
+    *,
+    youtube_settings: Optional[dict[str, Any]] = None,
+    extra_opts: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Run extract_info with cookie-aware YouTube client fallbacks."""
+
+    profiles = _ytdlp_info_profiles(youtube_settings)
+    last_err: Optional[BaseException] = None
+    for profile_index, profile in enumerate(profiles):
+        opts = {**_ytdlp_base_info_opts(), **(extra_opts or {})}
+        if profile['use_cookies']:
+            apply_ytdlp_cookie_opts(opts, youtube_settings)
+        else:
+            opts.pop('cookiefile', None)
+            opts.pop('cookiesfrombrowser', None)
+        opts['extractor_args'] = {
+            'youtube': _youtube_extractor_args(
+                youtube_settings,
+                use_cookies=profile['use_cookies'],
+                allow_missing_pot=True,
+            ),
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if isinstance(info, dict):
+                return info
+        except Exception as exc:
+            last_err = exc
+            if profile_index + 1 >= len(profiles):
+                break
+            if profile['use_cookies'] and _ytdlp_should_retry_without_cookies(
+                exc,
+                used_cookies=True,
+            ):
+                logger.debug(
+                    'yt-dlp: info extract cookie profile failed for {}',
+                    url[:120],
+                )
+                continue
+            if _ytdlp_format_unavailable_retry(exc):
+                logger.debug(
+                    'yt-dlp: info extract format unavailable for {} ({})',
+                    url[:120],
+                    profile['label'],
+                )
+                continue
+            if (
+                not profile['use_cookies']
+                and _ytdlp_age_restricted_retry(exc)
+                and ytdlp_cookies_configured(youtube_settings)
+            ):
+                logger.debug(
+                    'yt-dlp: age-restricted probe for {}, trying cookies',
+                    url[:120],
+                )
+                continue
+            break
+    if last_err is not None:
+        logger.opt(exception=True).debug(
+            'yt-dlp: info extract failed for {}', url[:120]
+        )
+    return None
+
+
 def _ytdlp_search_video_ids(
     query: str,
     *,
     count: int,
+    youtube_settings: Optional[dict[str, Any]] = None,
 ) -> list[str]:
     if not query:
         return []
-    opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': 'in_playlist',
-        'skip_download': True,
-    }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f'ytsearch{count}:{query}', download=False)
-    except Exception:
-        logger.opt(exception=True).debug(
-            'yt-dlp fallback search failed for query={!r}', query
-        )
+    info = _ytdlp_extract_info(
+        f'ytsearch{count}:{query}',
+        youtube_settings=youtube_settings,
+        extra_opts={'extract_flat': 'in_playlist'},
+    )
+    if info is None:
         return []
-    entries = info.get('entries') if isinstance(info, dict) else None
+    entries = info.get('entries')
     if not isinstance(entries, list):
         return []
     ids: list[str] = []
@@ -575,7 +702,11 @@ def _fallback_video_ids_via_ytdlp(
     seen: set[str] = set()
 
     for query in queries:
-        for vid in _ytdlp_search_video_ids(query, count=count):
+        for vid in _ytdlp_search_video_ids(
+            query,
+            count=count,
+            youtube_settings=youtube_settings,
+        ):
             if not vid or vid in skip or vid in seen:
                 continue
             seen.add(vid)
@@ -676,6 +807,16 @@ def _ytdlp_download_video(
                 except DownloadError as exc:
                     last_err = exc
                     msg = str(exc).casefold()
+                    if profile['use_cookies'] and _ytdlp_age_restricted_retry(
+                        exc
+                    ):
+                        logger.warning(
+                            'yt-dlp: age verification failed with cookies '
+                            'for {} — re-export cookies from youtube.com '
+                            'while signed in (private window, single tab) '
+                            'and confirm your account age on YouTube',
+                            video_id,
+                        )
                     if 'cookies are no longer valid' in msg:
                         logger.error(
                             'yt-dlp: YouTube cookies expired or rotated; '
@@ -720,23 +861,9 @@ def _ytdlp_video_probe(
     vid = str(video_id or '').strip()
     if not vid:
         return None
-    opts: dict[str, Any] = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'noplaylist': True,
-    }
-    apply_ytdlp_cookie_opts(opts, youtube_settings)
     url = f'https://www.youtube.com/watch?v={vid}'
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-    except Exception:
-        logger.opt(exception=True).debug(
-            'yt-dlp video probe failed for {}', vid
-        )
-        return None
-    if not isinstance(info, dict):
+    info = _ytdlp_extract_info(url, youtube_settings=youtube_settings)
+    if info is None:
         return None
     try:
         length = int(info.get('duration') or 0)
@@ -862,7 +989,7 @@ class Downloader:
     ) -> list[str]:
         allowed = {'youtube-music', 'youtube', 'slskd'}
         if not providers:
-            return ['youtube-music']
+            return ['youtube', 'youtube-music']
         out: list[str] = []
         seen: set[str] = set()
         for raw in providers:
@@ -870,7 +997,7 @@ class Downloader:
             if p in allowed and p not in seen:
                 seen.add(p)
                 out.append(p)
-        return out or ['youtube-music']
+        return out or ['youtube', 'youtube-music']
 
     @staticmethod
     def _normalize_slskd_settings(
@@ -1368,6 +1495,8 @@ class Downloader:
             'postprocessor_args': {
                 'ffmpeg': ['-threads', '4'],
             },
+            **_ytdlp_js_runtime_opts(),
+            **_ytdlp_ffmpeg_opts(),
         }
         # Many container setups have IPv6 advertised but unroutable for
         # googlevideo.com, which surfaces as EAI_AGAIN on the AAAA lookup.

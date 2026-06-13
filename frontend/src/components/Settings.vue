@@ -265,6 +265,19 @@
               {{ t('settings.youtubeDownloadTimeoutHint') }}
             </span>
           </label>
+          <label class="text-[11px] text-base-content/50 block mb-2">
+            {{ t('settings.youtubePoToken') }}
+            <input
+              class="input input-sm w-full mt-1 rounded-xl bg-base-100/85 border border-white/10 font-mono text-sm"
+              type="password"
+              autocomplete="off"
+              :placeholder="t('settings.youtubePoTokenPlaceholder')"
+              v-model="sm.settings.value.youtube.po_token"
+            />
+            <span class="block text-[11px] text-base-content/40 mt-1">
+              {{ t('settings.youtubePoTokenHint') }}
+            </span>
+          </label>
           <label
             class="flex items-start gap-3 rounded-xl border border-white/10 bg-base-100/85 px-3 py-2.5 cursor-pointer hover:border-white/20 mb-2"
           >
@@ -720,6 +733,7 @@ const YOUTUBE_DEFAULTS = {
   cookies_file: '',
   cookies_from_browser: '',
   download_timeout_seconds: 1800,
+  po_token: '',
   cookies_file_exists: false,
   cookies_looks_authenticated: false,
   cookies_auth_names: [],

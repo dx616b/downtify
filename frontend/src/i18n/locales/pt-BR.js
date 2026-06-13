@@ -314,6 +314,10 @@ export default {
     youtubeDownloadTimeout: 'Tempo máximo de download do YouTube (segundos)',
     youtubeDownloadTimeoutHint:
       'Tempo máximo por tentativa no YouTube (download + conversão ffmpeg). Padrão 1800 (30 min). Aumente para mixes longos ou discos lentos.',
+    youtubePoToken: 'Token PO do YouTube (opcional)',
+    youtubePoTokenPlaceholder: 'mweb.gvs+SEU_TOKEN',
+    youtubePoTokenHint:
+      'Token Proof-of-Origin para clientes web/mweb do yt-dlp quando o YouTube só retorna imagens. Separados por vírgula; formato client.context+token. Deixe vazio para usar DOWNTIFY_YT_PO_TOKEN do ambiente.',
     youtubeCookiesPath: 'Caminho do arquivo de cookies (no container)',
     youtubeCookiesPathPlaceholder: '/data/youtube-cookies.txt',
     youtubeCookiesUpload: 'Enviar cookies.txt',

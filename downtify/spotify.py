@@ -702,7 +702,7 @@ def _track_dict_from_graphql_item(
             if gql_release:
                 break
     if not gql_release:
-        logger.info(
+        logger.debug(
             'Spotify GraphQL track lacks album release date: '
             'track_id={!r} title={!r} album={!r} '
             'albumOfTrack_keys={}',

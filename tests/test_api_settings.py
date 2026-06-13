@@ -85,8 +85,8 @@ def test_effective_audio_providers_adds_youtube_fallback_when_only_slskd():
     }
     assert _effective_audio_providers(settings) == [
         'slskd',
-        'youtube-music',
         'youtube',
+        'youtube-music',
     ]
 
 
@@ -99,7 +99,7 @@ def test_effective_audio_providers_skips_slskd_when_disabled():
 
 
 def test_effective_audio_providers_defaults_when_missing():
-    assert _effective_audio_providers({}) == ['youtube-music']
+    assert _effective_audio_providers({}) == ['youtube', 'youtube-music']
 
 
 def test_effective_slskd_settings_defaults_when_missing():
