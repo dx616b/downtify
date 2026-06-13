@@ -194,6 +194,7 @@ export default {
     checkTimeHint:
       'Horário do dia para verificações diárias ou mais longas — usa o fuso local do seu navegador.',
     info: 'O monitoramento automático atualiza a playlist no Spotify e enfileira faixas que ainda não estão na biblioteca. Quando tudo já está na biblioteca, as verificações passam a ser semanais até faltar algo de novo. Em intervalos diários ou maiores você pode escolher um horário. Use Baixar faltantes para repetir falhas na hora.',
+    audioSources: 'Fontes de download',
     every15: 'A cada 15 min',
     every30: 'A cada 30 min',
     every1h: 'A cada hora',
@@ -226,6 +227,12 @@ export default {
     timeMinAgo: 'há {n} min',
     timeHourAgo: 'há {n} h',
     timeDayAgo: 'há {n} dia(s)',
+  },
+  playlistProviders: {
+    useGlobal: 'Usar fontes de download globais',
+    usingGlobal: 'Usando global: {chain}',
+    customHint:
+      'Tente as fontes em ordem até uma funcionar para esta playlist.',
   },
   settings: {
     title: 'Configurações',

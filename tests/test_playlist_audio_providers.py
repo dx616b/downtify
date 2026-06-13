@@ -93,7 +93,10 @@ def test_save_playlist_audio_providers_persists(
 
 @patch('downtify.api.resolve_existing_download', return_value=None)
 @patch('downtify.api.state')
-def test_run_download_passes_playlist_providers(mock_state: MagicMock) -> None:
+def test_run_download_passes_playlist_providers(
+    mock_state: MagicMock,
+    _mock_resolve: MagicMock,
+) -> None:
     downloader = MagicMock()
     downloader.youtube_settings = {}
     downloader.download.return_value = 'Artist - Song.mp3'
