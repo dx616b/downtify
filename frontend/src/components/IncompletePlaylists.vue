@@ -303,7 +303,11 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import API from '../model/api'
-import { syncQueueFromServer } from '../model/download'
+import {
+  onPlaylistBatchesChanged,
+  pruneCompletedQueue,
+  syncQueueFromServer,
+} from '../model/download'
 import {
   normalizeLibraryEntry,
   savePlayerViewPrefs,
@@ -334,6 +338,7 @@ let progressRefreshTimer = null
 let verifyBusy = false
 let progressRefreshBusy = false
 const progressWatchIds = new Set()
+let stopPlaylistBatchListener = null
 
 const VERIFY_STALE_MS = 5 * 60 * 1000
 const VERIFY_TICK_MS = 1200
@@ -770,6 +775,7 @@ async function onDownloadMissing(pl) {
   downloadingMissing.value = id
   trackProgressPlaylist(id)
   try {
+    await pruneCompletedQueue()
     await API.downloadMissingPlaylistTracks({
       spotify_playlist_id: id,
       playlist_url: pl.playlist_url,
@@ -841,6 +847,9 @@ function onDownloadTrack(pl, track) {
 }
 
 onMounted(() => {
+  stopPlaylistBatchListener = onPlaylistBatchesChanged(() => {
+    refreshPlaylists().catch(() => {})
+  })
   refreshPlaylists()
     .then(() => {
       tickVerify().catch(() => {})
@@ -858,6 +867,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (stopPlaylistBatchListener) {
+    stopPlaylistBatchListener()
+    stopPlaylistBatchListener = null
+  }
   if (refreshTimer) {
     clearInterval(refreshTimer)
     refreshTimer = null
