@@ -93,6 +93,9 @@ def test_prune_queue_after_batch_broadcasts_when_nothing_to_clear():
 
 def test_retry_failed_queue_requeues_only_errors():
     api.state.download_jobs.clear()
+    prev_downloader = api.state.downloader
+    prev_connections = api.state.connections
+    prev_run_download = api._run_download
     api.state.downloader = object()
     api.state.connections = AsyncMock()
     try:
@@ -117,4 +120,6 @@ def test_retry_failed_queue_requeues_only_errors():
         api.state.connections.broadcast.assert_awaited()
     finally:
         api.state.download_jobs.clear()
-        api.state.downloader = None
+        api.state.downloader = prev_downloader
+        api.state.connections = prev_connections
+        api._run_download = prev_run_download
