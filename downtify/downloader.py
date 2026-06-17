@@ -938,6 +938,9 @@ def _youtube_candidate_acceptable(
     return True
 
 
+_TAGGING_TIMEOUT_SECONDS = 300
+
+
 def _run_callable_with_timeout(
     func: Callable[[], None],
     *,
@@ -1307,6 +1310,11 @@ class Downloader:
         progress_cb: Optional[ProgressCallback],
         provider: Optional[str] = None,
     ) -> None:
+        label = _provider_display_name(provider)
+        if progress_cb:
+            msg = f'{label} · tagging metadata' if label else 'Tagging metadata'
+            progress_cb(96.0, msg, provider)
+
         if not song.get('genre'):
             try:
                 genre = _fetch_itunes_genre(song)
@@ -1317,12 +1325,26 @@ class Downloader:
                     'iTunes genre lookup failed for {}', final_path
                 )
 
+        logger.info('Tagging metadata: {}', final_path.name)
         try:
-            embed_metadata(final_path, song)
+            _run_callable_with_timeout(
+                lambda: embed_metadata(final_path, song),
+                timeout_seconds=_TAGGING_TIMEOUT_SECONDS,
+                label=f'Tagging {final_path.name}',
+            )
+        except TimeoutError:
+            logger.warning(
+                'Metadata tagging timed out after {}s for {}',
+                _TAGGING_TIMEOUT_SECONDS,
+                final_path,
+            )
         except Exception:
             logger.exception('Failed to embed metadata into {}', final_path)
 
         if self.lyrics_providers:
+            if progress_cb:
+                lyr_msg = f'{label} · fetching lyrics' if label else 'Fetching lyrics'
+                progress_cb(97.0, lyr_msg, provider)
             try:
                 fetched = lyrics_mod.fetch(song, self.lyrics_providers)
             except Exception:
@@ -1342,10 +1364,7 @@ class Downloader:
                     song.get('name') or final_path.stem,
                 )
 
-        if progress_cb:
-            label = _provider_display_name(provider)
-            msg = f'{label} · tagging' if label else 'Tagging'
-            progress_cb(98.0, msg, provider)
+        logger.info('Tagging complete: {}', final_path.name)
 
     def download(  # noqa: PLR0914  # yt-dlp + slskd + tagging pipeline
         self,
