@@ -1,6 +1,6 @@
 FROM denoland/deno:alpine-2.2.3 AS deno-stage
 
-FROM python:3.13-alpine AS builder
+FROM python:3.14-alpine AS builder
 
 WORKDIR /build
 
@@ -9,7 +9,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir --root-user-action ignore -r requirements.txt
 
-FROM python:3.13-alpine
+FROM python:3.14-alpine
 
 LABEL maintainer="dx616b"
 LABEL version="2.9.0"
