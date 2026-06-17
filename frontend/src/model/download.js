@@ -541,9 +541,22 @@ export function useDownloadManager() {
   function retryAllFailed() {
     const failed = downloadQueue.value.filter((item) => item.isErrored())
     for (const item of failed) {
-      retry(item.song)
+      item.resetForRetry()
     }
-    return failed.length
+    if (!failed.length) {
+      return Promise.resolve(0)
+    }
+    touchQueue()
+    ensureQueuePoll()
+    return API.retryFailedQueue()
+      .then((res) => res.data?.count ?? failed.length)
+      .catch((err) => {
+        console.error('retryAllFailed error:', err.message)
+        for (const item of failed) {
+          item.setError()
+        }
+        return 0
+      })
   }
 
   return {

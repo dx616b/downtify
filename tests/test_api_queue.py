@@ -89,3 +89,37 @@ def test_prune_queue_after_batch_broadcasts_when_nothing_to_clear():
         })
     finally:
         api.state.download_jobs.clear()
+
+
+def test_retry_failed_queue_requeues_only_errors():
+    api.state.download_jobs.clear()
+    prev_downloader = api.state.downloader
+    prev_connections = api.state.connections
+    prev_run_download = api._run_download
+    api.state.downloader = object()
+    api.state.connections = AsyncMock()
+    try:
+        err_id = api._register_job(
+            {'song_id': 'err-1', 'name': 'Fail'}, status='error'
+        )
+        done_id = api._register_job(
+            {'song_id': 'done-1', 'name': 'Ok'}, status='done'
+        )
+
+        async def _noop_download(*_args, **_kwargs):
+            return None
+
+        api._run_download = _noop_download  # type: ignore[method-assign]
+
+        result = asyncio.run(api.retry_failed_queue_endpoint())
+
+        assert result['count'] == 1
+        assert result['job_ids'] == [err_id]
+        assert api.state.download_jobs[err_id]['status'] == 'queued'
+        assert api.state.download_jobs[done_id]['status'] == 'done'
+        api.state.connections.broadcast.assert_awaited()
+    finally:
+        api.state.download_jobs.clear()
+        api.state.downloader = prev_downloader
+        api.state.connections = prev_connections
+        api._run_download = prev_run_download

@@ -24,8 +24,8 @@ YouTube periodically challenges automated downloaders. These variables give you 
 |----------|---------|-------------|
 | `DOWNTIFY_FORCE_IPV4` | _(unset)_ | Set to `1` to force yt-dlp to use IPv4 only. Useful when your host has a broken or rate-limited IPv6 address. |
 | `DOWNTIFY_YT_PLAYER_CLIENTS` | `ios,android,web_embedded,mweb,web,tv` | Comma-separated list of yt-dlp player clients to try, in order. Downtify's default list already favours clients that work without a JavaScript runtime. Override this only if you know a specific client is being blocked. |
-| `DOWNTIFY_YT_PO_TOKEN` | _(unset)_ | Comma-separated Proof-of-Origin tokens for yt-dlp, each in the form `<client>.<context>+<token>` (e.g. `mweb.gvs+ABC123`). Required only if YouTube starts demanding PO Tokens for the clients you're using. |
-| `DOWNTIFY_COOKIES_FILE` | _(unset)_ | Path to a Netscape-format `cookies.txt` inside the container. Lets yt-dlp authenticate as a real browser session. Useful when YouTube enforces age verification or login walls. |
+| `DOWNTIFY_YT_PO_TOKEN` | _(unset)_ | Comma-separated Proof-of-Origin tokens for yt-dlp, each in the form `<client>.<context>+<token>` (e.g. `mweb.gvs+ABC123`). Used when the Settings field is empty. You can also set this in **Settings → YouTube PO token** (stored in `/data`); the UI value takes precedence over this variable. |
+| `DOWNTIFY_COOKIES_FILE` | _(unset)_ | Path to a Netscape-format `cookies.txt` inside the container. Lets yt-dlp authenticate as a real browser session. Useful when YouTube enforces age verification or login walls. **Requires Deno** (bundled in the official Docker image) for web cookie clients to extract formats reliably. |
 | `DOWNTIFY_COOKIES_FROM_BROWSER` | _(unset)_ | Browser name to extract cookies from (e.g. `chrome`, `firefox`). Requires the browser's cookie store to be accessible inside the container. |
 
 ## Example: Docker Compose with anti-bot settings
@@ -53,3 +53,7 @@ Use a browser extension such as [Get cookies.txt LOCALLY](https://chrome.google.
 
 !!! warning
     Keep your `cookies.txt` private — it contains session tokens that grant access to your Google account.
+
+## YouTube Music unavailable in your region
+
+Default download sources are **YouTube, then YouTube Music**. If YouTube Music is blocked where you live (for example Albania), leave **youtube** first in Settings → Audio sources, or set a per-playlist override on Monitor. Upload cookies when YouTube asks you to sign in — the Docker image includes **Deno** so yt-dlp can solve web-client challenges.

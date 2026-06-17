@@ -205,6 +205,10 @@ function clearCompletedQueue() {
   return API.delete('/api/queue/completed')
 }
 
+function retryFailedQueue() {
+  return API.post('/api/queue/retry-failed')
+}
+
 function getSettings() {
   return API.get('/api/settings', { params: { client_id: sessionID } })
 }
@@ -263,6 +267,7 @@ export default {
   removeQueueItem,
   clearQueue,
   clearCompletedQueue,
+  retryFailedQueue,
   getSettings,
   setSettings,
   uploadYoutubeCookies,

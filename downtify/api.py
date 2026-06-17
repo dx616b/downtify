@@ -43,6 +43,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from loguru import logger
+from yt_dlp.utils import DownloadError
 
 from downtify.download_pool import DownloadParallelLimiter
 from downtify.slskd_provider import reset_slskd_parallelism
@@ -330,11 +331,12 @@ async def _schedule_playlist_refresh_after_download(
 DEFAULT_YOUTUBE_COOKIES_BASENAME = 'youtube-cookies.txt'
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    'audio_providers': ['youtube-music'],
+    'audio_providers': ['youtube', 'youtube-music'],
     'youtube': {
         'cookies_file': '',
         'cookies_from_browser': '',
         'download_timeout_seconds': 1800,
+        'po_token': '',
     },
     'slskd': {
         'enabled': False,
@@ -408,6 +410,7 @@ def _effective_youtube_settings(settings: dict[str, Any]) -> dict[str, Any]:
             minimum=60,
             maximum=7200,
         ),
+        'po_token': str(raw.get('po_token') or '').strip()[:8192],
     }
 
 
@@ -447,13 +450,13 @@ def _effective_audio_providers(settings: dict[str, Any]) -> list[str]:
             seen.add(p)
             out.append(p)
     if not out:
-        return ['youtube-music']
+        return ['youtube', 'youtube-music']
     # UI historically stored a single provider; keep playlist downloads useful
     # by falling back to YouTube when slskd is selected without a backup.
     if 'slskd' in out and not any(
         p in out for p in ('youtube', 'youtube-music')
     ):
-        for fallback in ('youtube-music', 'youtube'):
+        for fallback in ('youtube', 'youtube-music'):
             if fallback not in seen:
                 seen.add(fallback)
                 out.append(fallback)
@@ -994,12 +997,6 @@ async def _run_download(  # noqa: PLR0914
     effective_providers = _effective_playlist_audio_providers(
         spotify_playlist_id, state.settings
     )
-    logger.info(
-        'download start: title={!r} artists={} providers={}',
-        song.get('name'),
-        song.get('artists'),
-        effective_providers,
-    )
     job = state.download_jobs.get(song_id)
     if job is None:
         song_id = _register_job(song, status='queued')
@@ -1076,6 +1073,12 @@ async def _run_download(  # noqa: PLR0914
         async with (
             limiter if limiter is not None else contextlib.nullcontext()
         ):
+            logger.info(
+                'download start: title={!r} artists={} providers={}',
+                song.get('name'),
+                song.get('artists'),
+                effective_providers,
+            )
             job['status'] = 'downloading'
             job['progress'] = job.get('progress') or 0
             await state.connections.broadcast({
@@ -1132,6 +1135,24 @@ async def _run_download(  # noqa: PLR0914
             'song': song,
             'progress': 0,
             'message': str(exc),
+            'status': 'error',
+        })
+        return None
+    except DownloadError as exc:
+        msg = str(exc).strip() or 'YouTube download failed'
+        logger.warning(
+            'Download failed for {!r} ({}): {}',
+            song.get('name'),
+            song_id,
+            msg,
+        )
+        job['status'] = 'error'
+        job['progress'] = 0
+        job['message'] = msg
+        await state.connections.broadcast({
+            'song': song,
+            'progress': 0,
+            'message': msg,
             'status': 'error',
         })
         return None
@@ -2653,6 +2674,70 @@ def clear_queue() -> dict:
 def clear_completed_queue() -> dict:
     """Remove finished jobs so a new playlist queue is easier to read."""
     return {'removed': _clear_completed_jobs()}
+
+
+@router.post('/api/queue/retry-failed')
+async def retry_failed_queue_endpoint() -> dict[str, Any]:
+    """Re-queue errored jobs and process them under the parallel limiter."""
+
+    if state.downloader is None:
+        raise HTTPException(status_code=500, detail='Downloader not ready')
+
+    retries: list[tuple[str, dict[str, Any]]] = []
+    for song_id, job in list(state.download_jobs.items()):
+        if job.get('status') != 'error':
+            continue
+        song = job.get('song')
+        if not isinstance(song, dict):
+            continue
+        retries.append((song_id, song))
+
+    if not retries:
+        return {'count': 0, 'job_ids': []}
+
+    for song_id, song in retries:
+        job = state.download_jobs.get(song_id)
+        if job is None:
+            continue
+        job['status'] = 'queued'
+        job['progress'] = 0
+        job['message'] = ''
+        job['provider'] = ''
+        await state.connections.broadcast({
+            'song': song,
+            'progress': 0,
+            'message': '',
+            'status': 'queued',
+        })
+
+    async def _retry_one(song_id: str, song: dict[str, Any]) -> None:
+        pl_ctx = _playlist_context_from_hints(song)
+        try:
+            await _run_download(
+                song,
+                song_id,
+                subdir=pl_ctx.get('subdir'),
+                playlist_name=pl_ctx.get('playlist_name'),
+                spotify_playlist_id=pl_ctx.get('spotify_playlist_id'),
+                track_order=int(pl_ctx.get('track_order') or 0),
+                refresh_playlists=False,
+            )
+        except Exception:
+            logger.opt(exception=True).debug(
+                'retry failed download crashed for {}', song_id
+            )
+
+    async def _run_retries() -> None:
+        await asyncio.gather(
+            *[_retry_one(song_id, song) for song_id, song in retries],
+            return_exceptions=False,
+        )
+
+    asyncio.create_task(_run_retries())
+    return {
+        'count': len(retries),
+        'job_ids': [song_id for song_id, _ in retries],
+    }
 
 
 @router.delete('/api/queue/item')
