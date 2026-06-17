@@ -71,6 +71,10 @@ function downloadBatch(payload) {
   return API.post('/api/download/batch', payload)
 }
 
+function getDownloadBatchStatus() {
+  return API.get('/api/download/batch/status')
+}
+
 function getPlaylistBatches() {
   return API.get('/api/playlists/batches')
 }
@@ -249,6 +253,7 @@ export default {
   open,
   download,
   downloadBatch,
+  getDownloadBatchStatus,
   getPlaylistBatches,
   getPlaylistBatchDetails,
   downloadMissingPlaylistTracks,

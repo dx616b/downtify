@@ -133,6 +133,10 @@ export default {
     applyOverride: 'Aplicar',
     invalidYouTubeURL: 'URL do YouTube inválida',
     invalidSlskdOverride: 'Preencha par, pasta e nome do arquivo.',
+    playlistBatchWaitConfirm:
+      'Outro lote de playlist ainda está em execução ({active} ativas, {pending} na fila). Enfileirar esta playlist para começar quando o lote atual terminar?',
+    playlistBatchQueued:
+      'Playlist na fila (posição {position}, {count} faixas). Começará quando o lote atual terminar.',
   },
   library: {
     title: 'Biblioteca',

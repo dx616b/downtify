@@ -132,6 +132,10 @@ export default {
     applyOverride: 'Apply',
     invalidYouTubeURL: 'Invalid YouTube URL',
     invalidSlskdOverride: 'Fill in peer, folder path, and file name.',
+    playlistBatchWaitConfirm:
+      'Another playlist batch is still running ({active} active, {pending} queued). Queue this playlist to start when the current batch finishes?',
+    playlistBatchQueued:
+      'Playlist queued (position {position}, {count} tracks). It will start when the current batch finishes.',
   },
   library: {
     title: 'Library',

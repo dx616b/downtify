@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 
 import API from '/src/model/api'
+import { t } from '/src/i18n'
 import { useSettingsManager } from '/src/model/settings'
 
 const STATUS = {
@@ -249,9 +250,8 @@ export async function syncQueueFromServer() {
     applyServerJob(item, job)
   }
   downloadQueue.value = downloadQueue.value.filter((item) => {
-    if (!item.isDownloaded()) return true
     const key = jobSongKey(item.song)
-    return key && serverKeys.has(key)
+    return !key || serverKeys.has(key)
   })
   touchQueue()
   if (queueHasActiveItems()) {
@@ -345,7 +345,22 @@ export function useDownloadManager() {
     const audioProviders = options.audio_providers
     loading.value = true
     const playlistPrep = isPlaylistURL
-      ? pruneCompletedForNewPlaylist()
+      ? pruneCompletedForNewPlaylist().then(() =>
+          API.getDownloadBatchStatus().then((st) => {
+            const d = st.data || {}
+            if (d.running || (d.pending_batches || 0) > 0) {
+              const ok = confirm(
+                t('queue.playlistBatchWaitConfirm', {
+                  active: d.active_downloads || 0,
+                  pending: d.pending_batches || 0,
+                })
+              )
+              if (!ok) {
+                throw new Error('playlist batch cancelled')
+              }
+            }
+          })
+        )
       : Promise.resolve()
     return playlistPrep
       .then(() => API.open(url))
@@ -380,6 +395,16 @@ export function useDownloadManager() {
             batchPayload.audio_providers = audioProviders
           }
           return API.downloadBatch(batchPayload)
+            .then((res) => {
+              if (res.data?.deferred) {
+                alert(
+                  t('queue.playlistBatchQueued', {
+                    position: res.data.queue_position || 1,
+                    count: res.data.count || songs.length,
+                  })
+                )
+              }
+            })
             .then(() => syncQueueFromServer())
             .then(() => ensureQueuePoll())
             .catch((err) => {
@@ -391,6 +416,9 @@ export function useDownloadManager() {
         }
       })
       .catch((err) => {
+        if (err?.message === 'playlist batch cancelled') {
+          return
+        }
         console.log('Other Error:', err.message)
       })
       .finally(() => {

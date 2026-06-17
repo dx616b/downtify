@@ -3,9 +3,65 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+import time
+from unittest.mock import AsyncMock, patch
 
 from downtify import api
+
+
+def test_reconcile_stale_job_heals_when_file_on_disk():
+    api.state.download_jobs.clear()
+    prev_downloader = api.state.downloader
+    api.state.downloader = object()
+    api.state.connections.broadcast = AsyncMock()
+    try:
+        song_id = api._register_job(
+            {'song_id': 'stale-1', 'name': 'Zombie'},
+            status='downloading',
+        )
+        job = api.state.download_jobs[song_id]
+        job['progress'] = 98
+        job['updated_at'] = time.monotonic() - 700
+
+        with patch(
+            'downtify.api.resolve_existing_download',
+            return_value=('track.mp3', 'Already on disk'),
+        ):
+            count = asyncio.run(api._reconcile_stale_download_jobs())
+
+        assert count == 1
+        assert api.state.download_jobs[song_id]['status'] == 'done'
+        assert api.state.download_jobs[song_id]['filename'] == 'track.mp3'
+        api.state.connections.broadcast.assert_awaited()
+    finally:
+        api.state.download_jobs.clear()
+        api.state.downloader = prev_downloader
+
+
+def test_reconcile_stale_job_removes_when_no_file_on_disk():
+    api.state.download_jobs.clear()
+    prev_downloader = api.state.downloader
+    api.state.downloader = object()
+    try:
+        song_id = api._register_job(
+            {'song_id': 'stale-1', 'name': 'Zombie'},
+            status='downloading',
+        )
+        job = api.state.download_jobs[song_id]
+        job['progress'] = 98
+        job['updated_at'] = time.monotonic() - 700
+
+        with patch(
+            'downtify.api.resolve_existing_download',
+            return_value=None,
+        ):
+            count = asyncio.run(api._reconcile_stale_download_jobs())
+
+        assert count == 1
+        assert song_id not in api.state.download_jobs
+    finally:
+        api.state.download_jobs.clear()
+        api.state.downloader = prev_downloader
 
 
 def test_clear_completed_queue_removes_only_done_jobs():
@@ -29,6 +85,59 @@ def test_clear_completed_queue_removes_only_done_jobs():
         assert q_id in api.state.download_jobs
     finally:
         api.state.download_jobs.clear()
+
+
+def test_submit_playlist_batch_defers_while_another_runs():
+    api.state.download_jobs.clear()
+    api.state.pending_playlist_batches.clear()
+    api.state.playlist_batch_task = None
+    try:
+
+        async def _run() -> None:
+            gate = asyncio.Event()
+            api.state.playlist_batch_task = asyncio.create_task(gate.wait())
+            result = await api._submit_playlist_batch(
+                [{'song_id': 'new-1', 'name': 'Fresh', 'url': 'x'}],
+                'https://open.spotify.com/playlist/test',
+                generate_m3u=False,
+            )
+            assert result['deferred'] is True
+            assert result['queue_position'] == 1
+            assert len(api.state.pending_playlist_batches) == 1
+            assert 'new-1' in api.state.download_jobs
+            gate.set()
+            await api.state.playlist_batch_task
+
+        asyncio.run(_run())
+    finally:
+        api.state.download_jobs.clear()
+        api.state.pending_playlist_batches.clear()
+        api.state.playlist_batch_task = None
+
+
+def test_get_download_batch_status_reports_queue():
+    api.state.download_jobs.clear()
+    api.state.pending_playlist_batches.clear()
+    api.state.playlist_batch_task = None
+    try:
+        api._register_job({'song_id': 'q-1', 'name': 'A'}, status='queued')
+        api.state.pending_playlist_batches.append(
+            api._PlaylistBatchRequest(
+                songs=[{'song_id': 'p-1'}],
+                job_ids=['p-1'],
+                playlist_url='https://open.spotify.com/playlist/x',
+                generate_m3u=False,
+            )
+        )
+
+        status = api.get_download_batch_status()
+
+        assert status['pending_batches'] == 1
+        assert status['pending_tracks'] == 1
+        assert status['active_downloads'] == 1
+    finally:
+        api.state.download_jobs.clear()
+        api.state.pending_playlist_batches.clear()
 
 
 def test_submit_playlist_batch_clears_completed_jobs():

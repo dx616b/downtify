@@ -9,6 +9,8 @@ working without changes:
 * ``GET  /api/song/url`` and ``GET /api/url`` (alias)
 * ``POST /api/download/url`` (optional JSON body: resolved Spotify row so
   ``track_number`` / ``album_track_total`` survive re-fetch by URL)
+* ``POST /api/download/batch``
+* ``GET  /api/download/batch/status``
 * ``POST /api/playlist/m3u``
 * ``GET  /api/playlists/batches``
 * ``GET  /api/playlists/batches/{spotify_playlist_id}``
@@ -28,6 +30,7 @@ import contextlib
 import json
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -329,6 +332,7 @@ async def _schedule_playlist_refresh_after_download(
 
 
 DEFAULT_YOUTUBE_COOKIES_BASENAME = 'youtube-cookies.txt'
+_STALE_DOWNLOAD_JOB_SECONDS = 600
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     'audio_providers': ['youtube', 'youtube-music'],
@@ -699,6 +703,20 @@ class AppState:
     playlist_spotify_cache: Optional[PlaylistSpotifyCache] = None
     download_jobs: dict[str, dict[str, Any]] = {}
     download_limiter: Optional[DownloadParallelLimiter] = None
+    playlist_batch_task: Optional[asyncio.Task[Any]] = None
+    pending_playlist_batches: list[Any] = []
+
+
+_BATCH_WAIT_MESSAGE = 'Waiting for previous playlist batch'
+
+
+@dataclass
+class _PlaylistBatchRequest:
+    songs: list[dict[str, Any]]
+    job_ids: list[str]
+    playlist_url: str
+    generate_m3u: bool
+    batch_id: Optional[int] = None
 
 
 state = AppState()
@@ -935,6 +953,10 @@ def _song_for_download(url: str) -> dict[str, Any]:
     raise HTTPException(status_code=400, detail='Unsupported URL')
 
 
+def _touch_job(job: dict[str, Any]) -> None:
+    job['updated_at'] = time.monotonic()
+
+
 def _register_job(song: dict[str, Any], status: str = 'queued') -> str:
     song_id = str(song.get('song_id') or song.get('url') or id(song))
     state.download_jobs[song_id] = {
@@ -944,6 +966,7 @@ def _register_job(song: dict[str, Any], status: str = 'queued') -> str:
         'message': '',
         'provider': '',
         'filename': None,
+        'updated_at': time.monotonic(),
     }
     return song_id
 
@@ -961,9 +984,89 @@ def _clear_completed_jobs() -> int:
     return len(removed)
 
 
+async def _reconcile_stale_download_jobs() -> int:
+    """Heal or drop download jobs stuck in ``downloading`` with no live task."""
+
+    if state.downloader is None:
+        return 0
+
+    now = time.monotonic()
+    stale: list[tuple[str, dict[str, Any]]] = []
+    for song_id, job in list(state.download_jobs.items()):
+        if job.get('status') != 'downloading':
+            continue
+        updated = job.get('updated_at')
+        if updated is None:
+            job['updated_at'] = now - _STALE_DOWNLOAD_JOB_SECONDS - 1
+            updated = job['updated_at']
+        if now - float(updated) < _STALE_DOWNLOAD_JOB_SECONDS:
+            continue
+        stale.append((song_id, job))
+
+    if not stale:
+        return 0
+
+    loop = state.loop or asyncio.get_running_loop()
+    reconciled = 0
+    for song_id, job in stale:
+        song = job.get('song')
+        if not isinstance(song, dict):
+            del state.download_jobs[song_id]
+            reconciled += 1
+            continue
+
+        pl_ctx = _playlist_context_from_hints(song)
+        subdir = pl_ctx.get('subdir')
+
+        def _lookup(
+            lookup_song: dict[str, Any] = song,
+            lookup_subdir: Optional[str] = subdir,
+        ) -> Optional[tuple[str, str]]:
+            return resolve_existing_download(
+                state.downloader,
+                lookup_song,
+                subdir=lookup_subdir,
+                track_index=state.track_index,
+            )
+
+        hit = await loop.run_in_executor(None, _lookup)
+        if hit:
+            existing, skip_message = hit
+            job['status'] = 'done'
+            job['filename'] = existing
+            job['progress'] = 100
+            job['message'] = skip_message
+            _touch_job(job)
+            await state.connections.broadcast({
+                'song': song,
+                'progress': 100,
+                'message': skip_message,
+                'status': 'done',
+                'filename': existing,
+            })
+            logger.info(
+                'stale download healed: title={!r} song_id={} path={}',
+                song.get('name'),
+                song_id,
+                existing,
+            )
+        else:
+            logger.warning(
+                'Removing stale download job (no file on disk): title={!r} '
+                'song_id={} progress={}',
+                song.get('name'),
+                song_id,
+                job.get('progress'),
+            )
+            del state.download_jobs[song_id]
+        reconciled += 1
+    return reconciled
+
+
 async def _prune_queue_after_batch() -> int:
     """Drop completed jobs once a download batch finishes."""
 
+    await _reconcile_stale_download_jobs()
     cleared = _clear_completed_jobs()
     if cleared:
         logger.debug(
@@ -976,6 +1079,123 @@ async def _prune_queue_after_batch() -> int:
         'queue_pruned': cleared,
     })
     return cleared
+
+
+def _song_job_id(song: dict[str, Any]) -> str:
+    return str(song.get('song_id') or song.get('url') or '')
+
+
+def _active_download_job_count() -> int:
+    return sum(
+        1
+        for job in state.download_jobs.values()
+        if job.get('status') in {'queued', 'downloading'}
+    )
+
+
+def _playlist_batch_running() -> bool:
+    task = state.playlist_batch_task
+    return task is not None and not task.done()
+
+
+async def _register_batch_jobs(
+    songs: list[dict[str, Any]],
+    *,
+    waiting_message: str = '',
+) -> tuple[list[dict[str, Any]], list[str]]:
+    valid_songs: list[dict[str, Any]] = []
+    job_ids: list[str] = []
+    for song in songs:
+        if not isinstance(song, dict):
+            continue
+        sid = _song_job_id(song)
+        if sid:
+            existing = state.download_jobs.get(sid)
+            if existing and existing.get('status') in {'queued', 'downloading'}:
+                logger.debug(
+                    'batch skip active job: title={!r} song_id={}',
+                    song.get('name'),
+                    sid,
+                )
+                continue
+        song_id = _register_job(song, status='queued')
+        if waiting_message:
+            job = state.download_jobs.get(song_id)
+            if job is not None:
+                job['message'] = waiting_message
+                _touch_job(job)
+        valid_songs.append(song)
+        job_ids.append(song_id)
+        await state.connections.broadcast({
+            'song': song,
+            'progress': 0,
+            'message': waiting_message,
+            'status': 'queued',
+        })
+    return valid_songs, job_ids
+
+
+def _launch_playlist_batch_task(
+    songs: list[dict[str, Any]],
+    job_ids: list[str],
+    playlist_url: str,
+    *,
+    generate_m3u: bool,
+    batch_id: Optional[int] = None,
+) -> None:
+    state.playlist_batch_task = asyncio.create_task(
+        _process_batch(
+            songs,
+            job_ids,
+            playlist_url,
+            generate_m3u,
+            batch_id,
+        )
+    )
+
+    def _log_batch_failure(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.opt(exception=exc).error('Batch processing crashed')
+
+    state.playlist_batch_task.add_done_callback(_log_batch_failure)
+
+
+async def _start_next_queued_playlist_batch() -> None:
+    state.playlist_batch_task = None
+    while state.pending_playlist_batches:
+        req = state.pending_playlist_batches.pop(0)
+        if not req.songs:
+            continue
+        logger.info(
+            'playlist batch starting from queue: {} track(s) url={}',
+            len(req.songs),
+            req.playlist_url[:80],
+        )
+        for song_id in req.job_ids:
+            job = state.download_jobs.get(song_id)
+            if job is None or job.get('status') != 'queued':
+                continue
+            job['message'] = ''
+            _touch_job(job)
+            song = job.get('song')
+            if isinstance(song, dict):
+                await state.connections.broadcast({
+                    'song': song,
+                    'progress': 0,
+                    'message': '',
+                    'status': 'queued',
+                })
+        _launch_playlist_batch_task(
+            req.songs,
+            req.job_ids,
+            req.playlist_url,
+            generate_m3u=req.generate_m3u,
+            batch_id=req.batch_id,
+        )
+        return
 
 
 async def _run_download(  # noqa: PLR0914
@@ -1023,6 +1243,7 @@ async def _run_download(  # noqa: PLR0914
         job['filename'] = existing
         job['progress'] = 100
         job['message'] = skip_message
+        _touch_job(job)
         await state.connections.broadcast({
             'song': song,
             'progress': 100,
@@ -1047,6 +1268,7 @@ async def _run_download(  # noqa: PLR0914
                 j['message'] = message
             if provider:
                 j['provider'] = provider
+            _touch_job(j)
         asyncio.run_coroutine_threadsafe(
             state.connections.broadcast({
                 'song': song,
@@ -1081,6 +1303,7 @@ async def _run_download(  # noqa: PLR0914
             )
             job['status'] = 'downloading'
             job['progress'] = job.get('progress') or 0
+            _touch_job(job)
             await state.connections.broadcast({
                 'song': song,
                 'progress': job['progress'],
@@ -1116,6 +1339,7 @@ async def _run_download(  # noqa: PLR0914
                 job['status'] = 'error'
                 job['progress'] = 0
                 job['message'] = msg
+                _touch_job(job)
                 await state.connections.broadcast({
                     'song': song,
                     'progress': 0,
@@ -1131,6 +1355,7 @@ async def _run_download(  # noqa: PLR0914
         )
         job['status'] = 'error'
         job['message'] = str(exc)
+        _touch_job(job)
         await state.connections.broadcast({
             'song': song,
             'progress': 0,
@@ -1149,6 +1374,7 @@ async def _run_download(  # noqa: PLR0914
         job['status'] = 'error'
         job['progress'] = 0
         job['message'] = msg
+        _touch_job(job)
         await state.connections.broadcast({
             'song': song,
             'progress': 0,
@@ -1160,6 +1386,7 @@ async def _run_download(  # noqa: PLR0914
         logger.exception('Download failed for {}', song_id)
         job['status'] = 'error'
         job['message'] = f'Error: {exc}'
+        _touch_job(job)
         await state.connections.broadcast({
             'song': song,
             'progress': 0,
@@ -1168,10 +1395,17 @@ async def _run_download(  # noqa: PLR0914
         })
         raise
 
+    logger.info(
+        'download complete: title={!r} song_id={} filename={}',
+        song.get('name'),
+        song_id,
+        filename,
+    )
     job['status'] = 'done'
     job['filename'] = filename
     job['progress'] = 100
     job['message'] = 'Done'
+    _touch_job(job)
     await state.connections.broadcast({
         'song': song,
         'progress': 100,
@@ -1415,6 +1649,7 @@ async def _process_batch(
         )
     finally:
         await _prune_queue_after_batch()
+        await _start_next_queued_playlist_batch()
 
 
 async def _run_process_batch(
@@ -2255,43 +2490,60 @@ async def _submit_playlist_batch(
             cleared,
         )
 
-    valid_songs: list[dict[str, Any]] = []
-    job_ids: list[str] = []
-    for song in songs:
-        if not isinstance(song, dict):
-            continue
-        song_id = _register_job(song, status='queued')
-        valid_songs.append(song)
-        job_ids.append(song_id)
-        await state.connections.broadcast({
-            'song': song,
-            'progress': 0,
-            'message': '',
-            'status': 'queued',
-        })
+    deferred = _playlist_batch_running()
+    valid_songs, job_ids = await _register_batch_jobs(
+        songs,
+        waiting_message=_BATCH_WAIT_MESSAGE if deferred else '',
+    )
 
     if not valid_songs:
         raise HTTPException(status_code=400, detail='No valid songs in batch')
 
-    task = asyncio.create_task(
-        _process_batch(
-            valid_songs,
-            job_ids,
-            playlist_url,
-            generate_m3u,
-            batch_id,
+    if deferred:
+        state.pending_playlist_batches.append(
+            _PlaylistBatchRequest(
+                songs=valid_songs,
+                job_ids=job_ids,
+                playlist_url=playlist_url,
+                generate_m3u=generate_m3u,
+                batch_id=batch_id,
+            )
         )
+        position = len(state.pending_playlist_batches)
+        logger.info(
+            'playlist batch queued: {} track(s) position={} url={}',
+            len(valid_songs),
+            position,
+            playlist_url[:80],
+        )
+        return {
+            'job_ids': job_ids,
+            'count': len(job_ids),
+            'deferred': True,
+            'queue_position': position,
+        }
+
+    _launch_playlist_batch_task(
+        valid_songs,
+        job_ids,
+        playlist_url,
+        generate_m3u=generate_m3u,
+        batch_id=batch_id,
     )
+    return {'job_ids': job_ids, 'count': len(job_ids), 'deferred': False}
 
-    def _log_batch_failure(t: asyncio.Task) -> None:
-        if t.cancelled():
-            return
-        exc = t.exception()
-        if exc is not None:
-            logger.opt(exception=exc).error('Batch processing crashed')
 
-    task.add_done_callback(_log_batch_failure)
-    return {'job_ids': job_ids, 'count': len(job_ids)}
+@router.get('/api/download/batch/status')
+def get_download_batch_status() -> dict[str, Any]:
+    """Whether a playlist batch is running and how many are queued behind it."""
+
+    pending = state.pending_playlist_batches
+    return {
+        'running': _playlist_batch_running(),
+        'active_downloads': _active_download_job_count(),
+        'pending_batches': len(pending),
+        'pending_tracks': sum(len(batch.songs) for batch in pending),
+    }
 
 
 @router.post('/api/library/reconcile')
@@ -2660,7 +2912,8 @@ async def download_missing_playlist_tracks_endpoint(
 
 
 @router.get('/api/queue')
-def get_queue() -> list[dict[str, Any]]:
+async def get_queue() -> list[dict[str, Any]]:
+    await _reconcile_stale_download_jobs()
     return list(state.download_jobs.values())
 
 
@@ -2703,6 +2956,7 @@ async def retry_failed_queue_endpoint() -> dict[str, Any]:
         job['progress'] = 0
         job['message'] = ''
         job['provider'] = ''
+        _touch_job(job)
         await state.connections.broadcast({
             'song': song,
             'progress': 0,
