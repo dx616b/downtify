@@ -5,7 +5,7 @@ description = "Self-hosted Spotify downloader with slskd, Navidrome sync, and pl
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "fastapi>=0.137.1",
+    "fastapi>=0.137.2",
     "load-dotenv>=0.1.0",
     "loguru>=0.7.3",
     "mutagen>=1.47",
