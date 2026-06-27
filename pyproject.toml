@@ -5,10 +5,10 @@ description = "Self-hosted Spotify downloader with slskd, Navidrome sync, and pl
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "fastapi>=0.137.1",
+    "fastapi>=0.138.0",
     "load-dotenv>=0.1.0",
     "loguru>=0.7.3",
-    "mutagen>=1.47",
+    "mutagen>=1.48.0",
     "python-multipart>=0.0.9",
     "requests>=2.34.1",
     "uvicorn>=0.48.0",
@@ -20,9 +20,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "codeflash>=0.20.6",
-    "pytest>=8.0",
-    "ruff>=0.15.15",
-    "zensical>=0.0.43",
+    "pytest>=9.1.1",
+    "ruff>=0.15.18",
+    "zensical>=0.0.46",
 ]
 
 [tool.pytest.ini_options]
