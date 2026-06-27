@@ -176,8 +176,7 @@
               </ul>
               <pre
                 class="text-[10px] leading-relaxed text-base-content/60 whitespace-pre-wrap font-mono bg-base-300/30 rounded-lg px-2 py-1.5"
-                >{{ t('settings.slskdSourceDirExample') }}</pre
-              >
+                >{{ t('settings.slskdSourceDirExample') }}</pre>
             </div>
             <label class="text-[11px] text-base-content/50">
               {{ t('settings.slskdSourceDirLabel') }}
