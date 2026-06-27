@@ -2702,6 +2702,18 @@ async def download_batch_endpoint(request: Request) -> dict[str, Any]:
         spotify_playlist_id = parsed[1]
         playlist_name = str(songs[0].get('album_name') or '').strip()
         if not playlist_name:
+            try:
+                meta_name, _tracks = await asyncio.to_thread(
+                    spotify.playlist_info_and_tracks,
+                    spotify_playlist_id,
+                )
+                playlist_name = str(meta_name or '').strip()
+            except Exception:
+                logger.opt(exception=True).warning(
+                    'Batch download: could not resolve playlist name for {}',
+                    spotify_playlist_id,
+                )
+        if not playlist_name:
             playlist_name = spotify_playlist_id
         batch_id = await asyncio.to_thread(
             state.playlist_batch_store.start_batch,

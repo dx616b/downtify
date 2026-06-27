@@ -142,6 +142,7 @@ export default {
     subtitle: "Music you've already downloaded. Listen, re-download or remove.",
     searchPlaceholder: 'Search title, artist, album, or path…',
     searchNoResults: 'No tracks match your search.',
+    clearFilters: 'Clear filters',
     empty: 'No downloads yet.',
     emptyHint: 'Find a song to start filling your library.',
     failedLoad: 'Failed to load downloads.',

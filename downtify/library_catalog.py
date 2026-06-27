@@ -12,7 +12,7 @@ from .library_metadata_cache import LibraryMetadataCache
 from .library_paths import library_stored_path, locate_library_file
 from .library_paths_cache import get_cached_paths
 from .playlist_catalog import PlaylistCatalog
-from .track_index import TrackIndex
+from .track_index import TrackIndex, is_spotify_id
 
 AUDIO_EXTENSIONS = frozenset({
     '.mp3',
@@ -194,15 +194,36 @@ def _library_path_pairs(ctx: LibraryContext) -> list[tuple[str, Path]]:
     return pairs
 
 
+def _resolve_playlist_filter_name(
+    catalog: PlaylistCatalog, playlist: str
+) -> str:
+    """Map a UI filter value to the catalog name that owns tracks."""
+
+    pl_name = str(playlist or '').strip()
+    if not pl_name:
+        return ''
+    if catalog.list_tracks(pl_name):
+        return pl_name
+    sid = catalog.spotify_id_for_playlist(pl_name) or (
+        pl_name if is_spotify_id(pl_name) else ''
+    )
+    if sid:
+        for candidate in catalog._names_for_spotify_id(sid):
+            if catalog.list_tracks(candidate):
+                return candidate
+    return pl_name
+
+
 def _paths_for_playlist(
     ctx: LibraryContext, playlist_name: str
 ) -> Optional[set[str]]:
     pl_name = str(playlist_name or '').strip()
     if not pl_name or ctx.playlist_catalog is None:
         return None
+    resolved = _resolve_playlist_filter_name(ctx.playlist_catalog, pl_name)
     names = {
         str(row.get('filename') or '').strip().replace('\\', '/')
-        for row in ctx.playlist_catalog.list_tracks(pl_name)
+        for row in ctx.playlist_catalog.list_tracks(resolved)
     }
     names.discard('')
     return names

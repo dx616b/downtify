@@ -146,6 +146,7 @@ export default {
       'Música que ya has descargado. Escucha, descarga otra vez o elimina.',
     searchPlaceholder: 'Buscar título, artista, álbum o ruta…',
     searchNoResults: 'Ninguna pista coincide con la búsqueda.',
+    clearFilters: 'Quitar filtros',
     empty: 'Aún no hay descargas.',
     emptyHint: 'Encuentra una canción para empezar a llenar tu biblioteca.',
     failedLoad: 'No se pudieron cargar las descargas.',

@@ -83,7 +83,10 @@
       </p>
 
       <!-- Playlist filter + bulk selection -->
-      <div v-if="totalItems > 0" class="mb-4 flex flex-wrap items-center gap-2">
+      <div
+        v-if="playlistNames.length > 0 || playlistFilter"
+        class="mb-4 flex flex-wrap items-center gap-2"
+      >
         <label class="text-xs text-base-content/50 shrink-0">
           {{ t('library.filterByPlaylist') }}
         </label>
@@ -150,6 +153,13 @@
         <p class="text-base-content/50 text-sm">
           {{ t('library.searchNoResults') }}
         </p>
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost rounded-full mt-4"
+          @click="clearAllFilters"
+        >
+          {{ t('library.clearFilters') }}
+        </button>
       </div>
 
       <!-- Empty library -->
@@ -415,6 +425,11 @@ function coverUrlFor(file) {
 
 function markCoverFailed(file) {
   coverFailed.value = { ...coverFailed.value, [file]: true }
+}
+
+function clearAllFilters() {
+  clearLibraryFilter()
+  playlistFilter.value = ''
 }
 
 function scheduleLoad() {
