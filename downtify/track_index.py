@@ -21,6 +21,12 @@ _SPOTIFY_TRACK_URL = re.compile(
 )
 
 
+def is_spotify_id(value: str) -> bool:
+    """True when *value* is a 22-char Spotify track/playlist id."""
+
+    return bool(_SPOTIFY_TRACK_ID.fullmatch(str(value or '').strip()))
+
+
 def normalize_spotify_track_id(song: dict[str, Any]) -> Optional[str]:
     """Return a 22-char Spotify track id when ``song`` has one, else ``None``."""
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from downtify.library_catalog import _resolve_playlist_filter_name
 from downtify.playlist_catalog import PlaylistCatalog
 from downtify.track_index import normalize_spotify_track_id
 
@@ -35,3 +36,31 @@ def test_update_filename_by_content_key(tmp_path: Path) -> None:
     names = catalog.update_filename_by_content_key(ck, 'new/t.mp3')
     assert 'Pl' in names
     assert catalog.list_tracks('Pl')[0]['filename'] == 'new/t.mp3'
+
+
+def test_list_playlist_names_prefers_human_title_over_spotify_id(
+    tmp_path: Path,
+) -> None:
+    catalog = PlaylistCatalog(tmp_path / 'lib.db')
+    sid = '4uLU6hMCjMI75M1A2tKUQC'
+    catalog.ensure_playlist(sid, spotify_id=sid)
+    catalog.ensure_playlist('Road Trip', spotify_id=sid)
+    assert catalog.list_playlist_names() == ['Road Trip']
+
+
+def test_resolve_playlist_filter_maps_id_alias_to_named_playlist(
+    tmp_path: Path,
+) -> None:
+    catalog = PlaylistCatalog(tmp_path / 'lib.db')
+    track = tmp_path / 'Artist - Song.mp3'
+    track.write_bytes(b'audio')
+    sid = '4uLU6hMCjMI75M1A2tKUQC'
+    song = {'song_id': '6habFhsOp2NvshLv26DqMb'}
+    catalog.ensure_playlist(sid, spotify_id=sid)
+    catalog.replace_playlist_tracks(
+        'Road Trip',
+        [(song, 'Artist - Song.mp3', track)],
+        spotify_id=sid,
+    )
+    assert _resolve_playlist_filter_name(catalog, sid) == 'Road Trip'
+    assert _resolve_playlist_filter_name(catalog, 'Road Trip') == 'Road Trip'

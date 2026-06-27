@@ -143,6 +143,7 @@ export default {
     subtitle: 'Músicas que você já baixou. Escute, baixe novamente ou remova.',
     searchPlaceholder: 'Buscar título, artista, álbum ou caminho…',
     searchNoResults: 'Nenhuma faixa corresponde à busca.',
+    clearFilters: 'Limpar filtros',
     empty: 'Nenhum download ainda.',
     emptyHint: 'Encontre uma música para começar a montar sua biblioteca.',
     failedLoad: 'Falha ao carregar os downloads.',

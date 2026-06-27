@@ -11,7 +11,7 @@ from typing import Any, Optional
 from .library_cache_keys import file_content_key
 from .library_paths import locate_library_file
 from .sqlite_utils import connect_sqlite
-from .track_index import normalize_spotify_track_id
+from .track_index import is_spotify_id, normalize_spotify_track_id
 
 
 def _now_iso() -> str:
@@ -251,12 +251,36 @@ class PlaylistCatalog:
             linked += 1
         return linked
 
+    def _names_for_spotify_id(self, spotify_id: str) -> list[str]:
+        sid = str(spotify_id or '').strip()
+        if not sid:
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                'SELECT name FROM playlists WHERE spotify_id = ? ORDER BY name',
+                (sid,),
+            ).fetchall()
+        return [str(row['name']) for row in rows if row['name']]
+
     def list_playlist_names(self) -> list[str]:
         with self._connect() as conn:
             rows = conn.execute(
-                'SELECT name FROM playlists ORDER BY name'
+                'SELECT name, spotify_id FROM playlists ORDER BY name'
             ).fetchall()
-        return [str(row['name']) for row in rows]
+        by_sid: dict[str, list[str]] = {}
+        standalone: list[str] = []
+        for row in rows:
+            name = str(row['name'])
+            sid = str(row['spotify_id'] or '').strip()
+            if sid:
+                by_sid.setdefault(sid, []).append(name)
+            elif not is_spotify_id(name):
+                standalone.append(name)
+        chosen: set[str] = set(standalone)
+        for names in by_sid.values():
+            human = [name for name in names if not is_spotify_id(name)]
+            chosen.add(sorted(human or names)[0])
+        return sorted(chosen)
 
     def list_playlists_with_spotify_id(self) -> list[dict[str, Any]]:
         """Playlists in the catalog that have a linked Spotify playlist id."""
