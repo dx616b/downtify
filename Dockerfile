@@ -1,4 +1,4 @@
-FROM denoland/deno:alpine-2.9.0 AS deno-stage
+FROM denoland/deno:alpine-2.9.2 AS deno-stage
 
 FROM python:3.13-alpine AS builder
 
