@@ -60,7 +60,7 @@
           </p>
           <div class="grid grid-cols-2 gap-2">
             <button
-              v-for="provider in sm.settingsOptions.audio_providers"
+              v-for="provider in availableAudioProviders"
               :key="provider"
               type="button"
               class="rounded-xl border px-3 py-2 text-sm transition-colors text-left relative"
@@ -903,6 +903,20 @@ watchEffect(() => {
     sm.settings.value.audio_providers = ['youtube-music']
   }
 })
+
+watchEffect(() => {
+  const slskdOn = Boolean(sm.settings.value?.slskd?.enabled)
+  const list = sm.settings.value?.audio_providers
+  if (!Array.isArray(list) || slskdOn || !list.includes('slskd')) return
+  const next = list.filter((provider) => provider !== 'slskd')
+  sm.settings.value.audio_providers = next.length ? next : ['youtube-music']
+})
+
+const availableAudioProviders = computed(() =>
+  sm.settingsOptions.audio_providers.filter(
+    (provider) => provider !== 'slskd' || Boolean(sm.settings.value?.slskd?.enabled)
+  )
+)
 
 async function onYoutubeCookiesFile(event) {
   const input = event.target

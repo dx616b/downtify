@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import API from '/src/model/api'
 
 const settings = ref({
-  audio_providers: [''],
+  audio_providers: ['youtube-music', 'youtube'],
   youtube: {
     cookies_file: '',
     cookies_from_browser: '',
@@ -91,7 +91,15 @@ export function useSettingsManager() {
   const saveErrorText = ref('')
 
   function validateSettings() {
+    const providers = settings.value?.audio_providers || []
+    const selected = providers.filter((p) => String(p || '').trim())
+    if (!selected.length) {
+      return 'Select at least one audio provider'
+    }
     const slskd = settings.value?.slskd || {}
+    if (selected.includes('slskd') && !slskd.enabled) {
+      return 'Enable slskd before selecting it as a download source'
+    }
     if (slskd.enabled) {
       if (!String(slskd.base_url || '').trim()) {
         return 'slskd base URL is required when enabled'
@@ -131,6 +139,21 @@ export function useSettingsManager() {
       .then((res) => {
         if (res.status === 200) {
           console.log('Saved!')
+          if (res.data) {
+            settings.value = {
+              ...settings.value,
+              ...res.data,
+              youtube: {
+                ...settings.value.youtube,
+                ...(res.data.youtube || {}),
+              },
+              slskd: { ...settings.value.slskd, ...(res.data.slskd || {}) },
+              navidrome: {
+                ...settings.value.navidrome,
+                ...(res.data.navidrome || {}),
+              },
+            }
+          }
           isSaved.value = true
           const modal = document.getElementById('settings-modal')
           if (modal && 'checked' in modal) {

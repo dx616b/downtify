@@ -455,16 +455,31 @@ def _effective_audio_providers(settings: dict[str, Any]) -> list[str]:
             out.append(p)
     if not out:
         return ['youtube', 'youtube-music']
-    # UI historically stored a single provider; keep playlist downloads useful
-    # by falling back to YouTube when slskd is selected without a backup.
-    if 'slskd' in out and not any(
-        p in out for p in ('youtube', 'youtube-music')
-    ):
-        for fallback in ('youtube', 'youtube-music'):
-            if fallback not in seen:
-                seen.add(fallback)
-                out.append(fallback)
     return out
+
+
+def _validate_audio_providers_settings(settings: dict[str, Any]) -> None:
+    raw = settings.get('audio_providers')
+    if not isinstance(raw, list):
+        return
+    selected = [str(p or '').strip() for p in raw if str(p or '').strip()]
+    if not selected:
+        raise HTTPException(
+            status_code=400,
+            detail='Select at least one audio provider',
+        )
+    allowed = {'youtube-music', 'youtube', 'slskd'}
+    if not any(p in allowed for p in selected):
+        raise HTTPException(
+            status_code=400,
+            detail='Select at least one audio provider',
+        )
+    slskd_cfg = _effective_slskd_settings(settings)
+    if 'slskd' in selected and not bool(slskd_cfg.get('enabled')):
+        raise HTTPException(
+            status_code=400,
+            detail='Enable slskd before selecting it as a download source',
+        )
 
 
 def _playlist_audio_providers_override(
@@ -3074,6 +3089,7 @@ async def write_playlist_m3u_endpoint(request: Request) -> dict[str, Any]:
 @router.get('/api/settings')
 def get_settings_endpoint(client_id: str = Query('')) -> dict[str, Any]:
     out = dict(state.settings)
+    out['audio_providers'] = _effective_audio_providers(state.settings)
     out['youtube'] = _youtube_settings_for_response(state.settings)
     return out
 
@@ -3129,6 +3145,8 @@ async def update_settings_endpoint(
                         status_code=400,
                         detail='Navidrome password is required when enabled',
                     )
+        if 'audio_providers' in payload:
+            _validate_audio_providers_settings(state.settings)
         if 'audio_providers' in payload or 'slskd' in payload:
             state.settings['audio_providers'] = _effective_audio_providers(
                 state.settings
