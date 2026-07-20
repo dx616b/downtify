@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from fastapi import HTTPException
+
 from downtify.api import (
     DEFAULT_SETTINGS,
     _effective_audio_providers,
     _effective_lyrics_providers,
     _effective_slskd_settings,
     _load_settings,
+    _validate_audio_providers_settings,
 )
 
 
@@ -78,16 +82,12 @@ def test_effective_audio_providers_filters_invalid_and_dedupes():
     ]
 
 
-def test_effective_audio_providers_adds_youtube_fallback_when_only_slskd():
+def test_effective_audio_providers_keeps_slskd_only_when_enabled():
     settings = {
         'audio_providers': ['slskd'],
         'slskd': {'enabled': True},
     }
-    assert _effective_audio_providers(settings) == [
-        'slskd',
-        'youtube',
-        'youtube-music',
-    ]
+    assert _effective_audio_providers(settings) == ['slskd']
 
 
 def test_effective_audio_providers_skips_slskd_when_disabled():
@@ -100,6 +100,42 @@ def test_effective_audio_providers_skips_slskd_when_disabled():
 
 def test_effective_audio_providers_defaults_when_missing():
     assert _effective_audio_providers({}) == ['youtube', 'youtube-music']
+
+
+def test_validate_audio_providers_rejects_empty_selection():
+    with pytest.raises(HTTPException) as exc:
+        _validate_audio_providers_settings({'audio_providers': []})
+    assert exc.value.status_code == 400
+
+
+def test_validate_audio_providers_rejects_slskd_when_disabled():
+    with pytest.raises(HTTPException) as exc:
+        _validate_audio_providers_settings({
+            'audio_providers': ['slskd'],
+            'slskd': {'enabled': False},
+        })
+    assert exc.value.status_code == 400
+
+
+def test_validate_audio_providers_allows_slskd_only_when_enabled():
+    _validate_audio_providers_settings({
+        'audio_providers': ['slskd'],
+        'slskd': {'enabled': True},
+    })
+
+
+def test_load_settings_preserves_slskd_only_audio_providers(tmp_path):
+    path = tmp_path / 'settings.json'
+    path.write_text(
+        json.dumps({
+            'audio_providers': ['slskd'],
+            'slskd': {'enabled': True, 'base_url': 'http://slskd:5030'},
+        }),
+        encoding='utf-8',
+    )
+    out = _load_settings(path)
+    assert out['audio_providers'] == ['slskd']
+    assert _effective_audio_providers(out) == ['slskd']
 
 
 def test_effective_slskd_settings_defaults_when_missing():
