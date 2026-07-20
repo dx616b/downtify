@@ -914,7 +914,8 @@ watchEffect(() => {
 
 const availableAudioProviders = computed(() =>
   sm.settingsOptions.audio_providers.filter(
-    (provider) => provider !== 'slskd' || Boolean(sm.settings.value?.slskd?.enabled)
+    (provider) =>
+      provider !== 'slskd' || Boolean(sm.settings.value?.slskd?.enabled)
   )
 )
 
