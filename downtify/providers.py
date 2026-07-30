@@ -19,6 +19,7 @@ from .track_tag_match import (
     media_duration_matches_mix_variant,
     media_duration_matches_song,
     mix_variant_remote_skip_keywords,
+    normalize_search_keywords,
     remote_text_unacceptable,
     strip_mix_suffix,
 )
@@ -239,13 +240,13 @@ def find_match(  # noqa: PLR0914
     """
 
     artists = song.get('artists') or []
-    artists_q = ' '.join(artists)
+    artists_q = normalize_search_keywords(' '.join(artists))
     title = song.get('name', '')
-    query = f'{artists_q} {title}'.strip()
+    query = normalize_search_keywords(f'{artists_q} {title}')
     if not query:
         return None, None
     duration = song.get('duration') or 0
-    title_only = title.strip()
+    title_only = normalize_search_keywords(title)
 
     def _search(
         phase: str, q: str, filt: Optional[str]
@@ -307,9 +308,9 @@ def find_match(  # noqa: PLR0914
             ('match_videos_title_ascii_fold', folded_title, 'videos'),
             ('match_all_title_ascii_fold', folded_title, None),
         ])
-    base_title = strip_mix_suffix(title_only)
+    base_title = normalize_search_keywords(strip_mix_suffix(str(title or '')))
     if base_title and base_title.casefold() != title_only.casefold():
-        base_query = f'{artists_q} {base_title}'.strip()
+        base_query = normalize_search_keywords(f'{artists_q} {base_title}')
         attempts.extend([
             ('match_songs_base_title', base_query, 'songs'),
             ('match_videos_base_title', base_query, 'videos'),
@@ -436,9 +437,9 @@ def find_match_for_video(
     metadata without risking switching to a different track.
     """
 
-    artists = ' '.join(song.get('artists') or [])
+    artists = normalize_search_keywords(' '.join(song.get('artists') or []))
     title = song.get('name', '')
-    query = f'{artists} {title}'.strip()
+    query = normalize_search_keywords(f'{artists} {title}')
     if not query:
         return None
     try:

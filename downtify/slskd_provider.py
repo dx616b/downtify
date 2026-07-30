@@ -20,6 +20,7 @@ from .track_tag_match import (
     duration_tolerances_from_settings,
     media_duration_matches_mix_variant,
     media_duration_matches_song,
+    normalize_search_keywords,
     remote_text_unacceptable,
     snapshot_spotify_metadata,
     spotify_file_tag_mismatch_label,
@@ -584,29 +585,39 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
         for a in (song.get('artists') or [])[:2]
         if str(a).strip()
     ]
-    artist = artists[0] if artists else ''
+    all_artists = ' '.join(artists)
+    primary_artist = artists[0] if artists else ''
     title = str(song.get('name') or '').strip()
     short_title = _primary_title(title)
     queries: list[str] = []
     seen: set[str] = set()
 
     def add(q: str) -> None:
-        normalized = _normalize_search_text(q)
+        normalized = normalize_search_keywords(q)
         if normalized and normalized not in seen:
             seen.add(normalized)
             queries.append(normalized)
 
-    # Explo uses "title - artist"
-    if short_title and artist:
-        add(f'{short_title} - {artist}')
-    if title and artist and title != short_title:
-        add(f'{title} - {artist}')
-    if short_title:
+    # Soulseek search is keyword-oriented. Start with up to two credited
+    # artists, then progressively remove terms so a strict query cannot hide
+    # results.
+    if all_artists and title:
+        add(f'{all_artists} {title}')
+    if all_artists and short_title and short_title != title:
+        add(f'{all_artists} {short_title}')
+    if primary_artist and title and primary_artist != all_artists:
+        add(f'{primary_artist} {title}')
+    if (
+        primary_artist
+        and short_title
+        and short_title != title
+        and primary_artist != all_artists
+    ):
+        add(f'{primary_artist} {short_title}')
+    if title:
+        add(title)
+    if short_title and short_title != title:
         add(short_title)
-    if artist and short_title and short_title != title:
-        add(f'{artist} {short_title}')
-    if artist and title:
-        add(f'{artist} {title}')
     return queries
 
 

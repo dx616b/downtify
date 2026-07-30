@@ -32,14 +32,17 @@ def test_flatten_slskd_responses_attaches_username_to_files():
     assert rows[0]['filename'] == 'Artist - Track.mp3'
 
 
-def test_slskd_search_queries_prefers_title_dash_artist():
+def test_slskd_search_queries_prefers_all_artists_then_title():
     queries = _slskd_search_queries({
-        'artists': ['4D4M'],
-        'name': "YOU KNOW WHERE WE'RE GOING - Hardstyle Bass Bounce Edition",
-        'album_name': "YOU KNOW WHERE WE'RE GOING",
+        'artists': ['Facundo Mohrr', 'Valdovinos'],
+        'name': 'No Mod',
+        'album_name': 'Burning',
     })
-    assert queries[0] == 'YOU KNOW WHERE WERE GOING - 4D4M'
-    assert 'YOU KNOW WHERE WERE GOING' in queries
+    assert queries == [
+        'Facundo Mohrr Valdovinos No Mod',
+        'Facundo Mohrr No Mod',
+        'No Mod',
+    ]
 
 
 def test_slskd_search_queries_include_full_and_short_radio_mix():
@@ -47,9 +50,10 @@ def test_slskd_search_queries_include_full_and_short_radio_mix():
         'artists': ['Y:K'],
         'name': 'Loud Enough - Radio Mix',
     })
-    assert queries[0] == 'Loud Enough - Y:K'
-    assert 'Loud Enough - Radio Mix - Y:K' in queries
-    assert 'Y:K Loud Enough - Radio Mix' in queries
+    assert queries[0] == 'Y K Loud Enough Radio Mix'
+    assert 'Y K Loud Enough' in queries
+    assert 'Loud Enough' in queries
+    assert all(not any(char in query for char in ':()-') for query in queries)
 
 
 def test_rank_accepts_radio_mix_filename_for_radio_mix_track():
