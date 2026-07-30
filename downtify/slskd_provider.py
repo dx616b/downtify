@@ -240,6 +240,55 @@ class SlskdClient:
         except Exception:
             pass
 
+    def directory_contents(
+        self, username: str, directory: str
+    ) -> list[dict[str, Any]]:
+        endpoint = f'/api/v0/users/{quote(username)}/directory'
+        try:
+            data = self._request(
+                'POST', endpoint, json_body={'directory': directory}
+            )
+        except Exception as exc:
+            logger.info(
+                'slskd: directory browse failed user={!r} dir={!r} err={}',
+                username,
+                directory[:120],
+                exc,
+            )
+            return []
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+        return [row for row in data if isinstance(row, dict)]
+
+    def remote_file_size(self, username: str, filename: str) -> int:
+        """Browse the peer for the real size (manual overrides carry none).
+
+        slskd aborts a transfer when the size it was given does not match
+        the size the peer reports, so an unknown size must be resolved
+        before enqueueing.
+        """
+        directory = _remote_parent_dir(filename)
+        if not username or not directory:
+            return 0
+        for entry in self.directory_contents(username, directory):
+            for file_row in entry.get('files') or []:
+                if not isinstance(file_row, dict):
+                    continue
+                name = str(
+                    file_row.get('filename') or file_row.get('fileName') or ''
+                )
+                if not _paths_match(name, filename):
+                    continue
+                try:
+                    size = int(file_row.get('size') or 0)
+                except (TypeError, ValueError):
+                    continue
+                if size > 0:
+                    return size
+        return 0
+
     def enqueue_download(self, row: dict[str, Any]) -> bool:
         username = str(
             row.get('username') or row.get('userName') or row.get('user') or ''
@@ -260,8 +309,7 @@ class SlskdClient:
         endpoint = f'/api/v0/transfers/downloads/{quote(username)}'
         body = [{'filename': filename, 'size': max(0, size)}]
         try:
-            self._request('POST', endpoint, json_body=body)
-            return True
+            data = self._request('POST', endpoint, json_body=body)
         except Exception as exc:
             logger.info(
                 'slskd: enqueue failed user={!r} file={!r} err={}',
@@ -270,6 +318,34 @@ class SlskdClient:
                 exc,
             )
             return False
+        failures = _enqueue_failures(data)
+        if failures:
+            logger.info(
+                'slskd: enqueue rejected user={!r} file={!r} reason={!r}',
+                username,
+                filename[:120],
+                failures[0][:200],
+            )
+            return False
+        return True
+
+    def cancel_transfer(self, username: str, transfer_id: str) -> None:
+        """Remove a terminal transfer so a re-enqueue is not deduplicated."""
+        if not username or not transfer_id:
+            return
+        endpoint = (
+            f'/api/v0/transfers/downloads/{quote(username)}/'
+            f'{quote(transfer_id)}?remove=true'
+        )
+        try:
+            self._request('DELETE', endpoint)
+        except Exception as exc:
+            logger.debug(
+                'slskd: cancel transfer failed user={!r} id={!r} err={}',
+                username,
+                transfer_id,
+                exc,
+            )
 
     def list_download_transfers(self) -> list[dict[str, Any]]:
         try:
@@ -316,6 +392,35 @@ class SlskdClient:
             if paths:
                 return paths
         return []
+
+
+def _remote_parent_dir(filename: str) -> str:
+    """Parent of a Soulseek path, keeping the peer's separator style."""
+    text = str(filename or '').strip()
+    cut = max(text.rfind('\\'), text.rfind('/'))
+    if cut <= 0:
+        return ''
+    return text[:cut]
+
+
+def _enqueue_failures(data: Any) -> list[str]:
+    """Messages from slskd's ``{enqueued, failed}`` enqueue response."""
+    if not isinstance(data, dict):
+        return []
+    rows = data.get('failed')
+    if rows is None:
+        rows = data.get('Failed')
+    if not isinstance(rows, list):
+        return []
+    messages: list[str] = []
+    for row in rows:
+        if isinstance(row, dict):
+            messages.append(
+                str(row.get('message') or row.get('Message') or 'failed')
+            )
+        elif row:
+            messages.append(str(row))
+    return messages
 
 
 def _flatten_slskd_responses(data: Any) -> list[dict[str, Any]]:
@@ -899,7 +1004,26 @@ def _transfer_failed(status: dict[str, Any]) -> bool:
     return 'Errored' in state or 'Cancelled' in state or 'Aborted' in state
 
 
+_SIZE_MISMATCH_RE = re.compile(
+    r'remote size of (\d+) does not match expected size', re.IGNORECASE
+)
+
+
+def _transfer_remote_size_mismatch(status: dict[str, Any]) -> int:
+    """Remote size from slskd's size-mismatch abort message (0 if absent)."""
+    for key in ('exception', 'Exception', 'stateDescription'):
+        match = _SIZE_MISMATCH_RE.search(str(status.get(key) or ''))
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return 0
+    return 0
+
+
 def _transfer_succeeded(status: dict[str, Any]) -> bool:
+    if _transfer_failed(status):
+        return False
     state = str(status.get('state') or '')
     remaining = int(status.get('bytesRemaining') or 0)
     percent = float(status.get('percentComplete') or 0)
@@ -1104,6 +1228,40 @@ def _finalize_slskd_path(
     return _copy_to_output(found, output_dir)
 
 
+def _retry_with_remote_size(
+    client: SlskdClient,
+    transfer: dict[str, Any],
+    *,
+    username: str,
+    filename: str,
+    expected_size: int,
+) -> int:
+    """Re-enqueue an aborted transfer using the peer's size.
+
+    Returns the corrected size, or 0 when the abort was not a size
+    mismatch or the re-enqueue failed.
+    """
+    remote_size = _transfer_remote_size_mismatch(transfer)
+    if remote_size <= 0 or remote_size == expected_size:
+        return 0
+    logger.info(
+        'slskd: size mismatch, re-enqueueing expected={} remote={} '
+        'user={!r} file={!r}',
+        expected_size,
+        remote_size,
+        username,
+        _file_basename(filename)[:120],
+    )
+    client.cancel_transfer(username, str(transfer.get('id') or ''))
+    if not client.enqueue_download({
+        'username': username,
+        'filename': filename,
+        'size': remote_size,
+    }):
+        return 0
+    return remote_size
+
+
 def _wait_for_slskd_file(
     client: SlskdClient,
     song: dict[str, Any],
@@ -1134,6 +1292,7 @@ def _wait_for_slskd_file(
     last_bytes = -1
     last_progress = wait_started
     last_reported_pct = -1.0
+    size_retried = False
 
     for attempt in range(max(1, attempts)):
         if deadline is not None and _past_deadline(deadline):
@@ -1172,7 +1331,23 @@ def _wait_for_slskd_file(
             except (TypeError, ValueError):
                 pass
             if _transfer_failed(transfer):
-                return None
+                if size_retried:
+                    return None
+                size_retried = True
+                expected_size = _retry_with_remote_size(
+                    client,
+                    transfer,
+                    username=username,
+                    filename=filename,
+                    expected_size=expected_size,
+                )
+                if expected_size <= 0:
+                    return None
+                last_bytes = -1
+                wait_started = time.monotonic()
+                last_progress = wait_started
+                time.sleep(max(1, interval))
+                continue
             transferred = int(transfer.get('bytesTransferred') or 0)
             if transferred > last_bytes:
                 last_bytes = transferred
@@ -1331,6 +1506,23 @@ def _download_slskd_direct(
             _file_basename(filename)[:120],
             song.get('name'),
         )
+        if expected_size <= 0:
+            expected_size = client.remote_file_size(username, filename)
+            if expected_size > 0:
+                row['size'] = expected_size
+                logger.info(
+                    'slskd: resolved remote size={} user={!r} file={!r}',
+                    expected_size,
+                    username,
+                    _file_basename(filename)[:120],
+                )
+            else:
+                logger.info(
+                    'slskd: could not resolve remote size user={!r} '
+                    'file={!r}; relying on mismatch retry',
+                    username,
+                    _file_basename(filename)[:120],
+                )
         if not client.enqueue_download(row):
             logger.info(
                 'slskd: manual enqueue failed user={!r} file={!r}',
