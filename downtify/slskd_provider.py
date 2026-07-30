@@ -263,30 +263,71 @@ class SlskdClient:
         return [row for row in data if isinstance(row, dict)]
 
     def remote_file_size(self, username: str, filename: str) -> int:
-        """Browse the peer for the real size (manual overrides carry none).
+        """Resolve peer file size before enqueueing a manual override.
 
-        slskd aborts a transfer when the size it was given does not match
-        the size the peer reports, so an unknown size must be resolved
-        before enqueueing.
+        Prefers a directory browse, then a short targeted search. slskd aborts
+        when the enqueued size does not match what the peer reports.
         """
-        directory = _remote_parent_dir(filename)
-        if not username or not directory:
+        if not username or not filename:
             return 0
-        for entry in self.directory_contents(username, directory):
-            for file_row in entry.get('files') or []:
-                if not isinstance(file_row, dict):
-                    continue
-                name = str(
-                    file_row.get('filename') or file_row.get('fileName') or ''
-                )
-                if not _paths_match(name, filename):
-                    continue
-                try:
-                    size = int(file_row.get('size') or 0)
-                except (TypeError, ValueError):
-                    continue
+        size = self._size_from_directory_browse(username, filename)
+        if size > 0:
+            return size
+        return self._size_from_search(username, filename)
+
+    def _size_from_directory_browse(self, username: str, filename: str) -> int:
+        directory = _remote_parent_dir(filename)
+        if not directory:
+            return 0
+        # Some peers only answer with a trailing separator.
+        candidates = [directory]
+        if not directory.endswith(('\\', '/')):
+            sep = '\\' if '\\' in directory else '/'
+            candidates.append(directory + sep)
+        for directory_name in candidates:
+            for entry in self.directory_contents(username, directory_name):
+                size = _size_from_file_rows(entry.get('files') or [], filename)
                 if size > 0:
                     return size
+        return 0
+
+    def _size_from_search(self, username: str, filename: str) -> int:
+        """Fall back to a short search when directory browse fails (common 500)."""
+        query = _file_basename(filename)
+        if not query:
+            return 0
+        search_id = self.start_search(query) or ''
+        if not search_id:
+            return 0
+        try:
+            polls = min(3, max(1, self.search_retries))
+            interval = min(5, max(1, self.search_poll_seconds))
+            for attempt in range(polls):
+                try:
+                    status = self._request(
+                        'GET', f'/api/v0/searches/{search_id}'
+                    )
+                except Exception:
+                    return 0
+                if isinstance(status, dict) and status.get('isComplete'):
+                    break
+                if attempt + 1 < polls:
+                    time.sleep(interval)
+            for resp in self.search_responses(search_id):
+                if str(resp.get('username') or '').strip() != username:
+                    continue
+                size = _size_from_file_rows(resp.get('files') or [], filename)
+                if size > 0:
+                    logger.info(
+                        'slskd: resolved size={} via search user={!r} '
+                        'file={!r}',
+                        size,
+                        username,
+                        query[:120],
+                    )
+                    return size
+        finally:
+            self.delete_search(search_id)
         return 0
 
     def enqueue_download(self, row: dict[str, Any]) -> bool:
@@ -357,8 +398,15 @@ class SlskdClient:
         return []
 
     def find_transfer(
-        self, username: str, filename: str
+        self,
+        username: str,
+        filename: str,
+        *,
+        ignore_ids: Optional[set[str]] = None,
     ) -> Optional[dict[str, Any]]:
+        """Return the best matching transfer, preferring active over aborted."""
+        ignored = ignore_ids or set()
+        matches: list[dict[str, Any]] = []
         for peer_filter in (username, ''):
             for peer in self.list_download_transfers():
                 if (
@@ -372,14 +420,22 @@ class SlskdClient:
                     for file_row in directory.get('files') or []:
                         if not isinstance(file_row, dict):
                             continue
+                        transfer_id = str(file_row.get('id') or '')
+                        if transfer_id and transfer_id in ignored:
+                            continue
                         name = str(
                             file_row.get('filename')
                             or file_row.get('fileName')
                             or ''
                         )
                         if _paths_match(name, filename):
-                            return file_row
-        return None
+                            matches.append(file_row)
+            if matches:
+                break
+        if not matches:
+            return None
+        active = [row for row in matches if not _transfer_failed(row)]
+        return (active or matches)[0]
 
     def remote_download_directories(self) -> list[str]:
         """Best-effort read of slskd's configured download/incomplete dirs."""
@@ -401,6 +457,24 @@ def _remote_parent_dir(filename: str) -> str:
     if cut <= 0:
         return ''
     return text[:cut]
+
+
+def _size_from_file_rows(rows: Any, filename: str) -> int:
+    if not isinstance(rows, list):
+        return 0
+    for file_row in rows:
+        if not isinstance(file_row, dict):
+            continue
+        name = str(file_row.get('filename') or file_row.get('fileName') or '')
+        if not _paths_match(name, filename):
+            continue
+        try:
+            size = int(file_row.get('size') or 0)
+        except (TypeError, ValueError):
+            continue
+        if size > 0:
+            return size
+    return 0
 
 
 def _enqueue_failures(data: Any) -> list[str]:
@@ -1262,7 +1336,7 @@ def _retry_with_remote_size(
     return remote_size
 
 
-def _wait_for_slskd_file(
+def _wait_for_slskd_file(  # noqa: PLR0914
     client: SlskdClient,
     song: dict[str, Any],
     username: str,
@@ -1293,6 +1367,7 @@ def _wait_for_slskd_file(
     last_progress = wait_started
     last_reported_pct = -1.0
     size_retried = False
+    ignore_ids: set[str] = set()
 
     for attempt in range(max(1, attempts)):
         if deadline is not None and _past_deadline(deadline):
@@ -1322,7 +1397,9 @@ def _wait_for_slskd_file(
                     progress_cb(92.0, 'slskd · downloading', 'slskd')
                 return found
 
-        transfer = client.find_transfer(username, filename)
+        transfer = client.find_transfer(
+            username, filename, ignore_ids=ignore_ids
+        )
         if transfer:
             try:
                 expected_size = max(
@@ -1331,9 +1408,17 @@ def _wait_for_slskd_file(
             except (TypeError, ValueError):
                 pass
             if _transfer_failed(transfer):
+                abort_id = str(transfer.get('id') or '')
                 if size_retried:
-                    return None
+                    # Stale abort still listed after re-enqueue — keep waiting
+                    # for the replacement transfer.
+                    if abort_id:
+                        ignore_ids.add(abort_id)
+                    time.sleep(max(1, interval))
+                    continue
                 size_retried = True
+                if abort_id:
+                    ignore_ids.add(abort_id)
                 expected_size = _retry_with_remote_size(
                     client,
                     transfer,
