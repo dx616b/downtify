@@ -129,6 +129,72 @@ def test_download_slskd_direct_skips_search(monkeypatch, tmp_path: Path):
     assert enqueued[0]['filename'].startswith('@@wibgr')
 
 
+def test_download_slskd_direct_keeps_file_when_tags_differ(
+    monkeypatch, tmp_path: Path
+):
+    slskd_dir = tmp_path / 'slskd'
+    slskd_dir.mkdir()
+    track = slskd_dir / '18 - Audiense - Desert Rose (Original Mix).mp3'
+    track.write_bytes(b'0' * 80_000)
+
+    def _fake_client(_settings: dict[str, Any]) -> MagicMock:
+        client = MagicMock()
+        client.configured.return_value = True
+        client.can_connect.return_value = True
+        client.remote_download_directories.return_value = []
+        client.enqueue_download.return_value = True
+        client.find_transfer.return_value = {
+            'state': 'Completed, Succeeded',
+            'bytesTransferred': 80_000,
+            'size': 80_000,
+            'percentComplete': 100,
+        }
+        return client
+
+    monkeypatch.setattr('downtify.slskd_provider.SlskdClient', _fake_client)
+    monkeypatch.setattr(
+        'downtify.slskd_provider._find_on_disk_for_song',
+        lambda *args, **kwargs: track,
+    )
+    monkeypatch.setattr(
+        'downtify.slskd_provider.verify_downloaded_file_matches_spotify',
+        lambda path, row: False,
+    )
+    monkeypatch.setattr(
+        'downtify.slskd_provider.read_audio_metadata',
+        lambda path: {
+            'title': 'Desert Rose (Original Mix)',
+            'artists': ['Audiense'],
+        },
+    )
+    monkeypatch.setattr(
+        'downtify.slskd_provider._slskd_semaphore',
+        lambda settings: MagicMock(
+            __enter__=lambda self: self, __exit__=lambda *a: None
+        ),
+    )
+
+    settings = {
+        'enabled': True,
+        'source_dir': str(slskd_dir),
+        'output_dir': str(tmp_path / 'downloads'),
+        'leave_in_place': True,
+    }
+    song = {
+        'name': 'Desert Rose (DOTB Deepdub) - Mixed',
+        'artists': ['Audiense'],
+        'slskd_override': True,
+        'slskd_username': 'Zambererronni',
+        'slskd_filename': (
+            '@@x\\Album\\18 - Audiense - Desert Rose (Original Mix).mp3'
+        ),
+        'slskd_size': 80_000,
+    }
+
+    assert _download_slskd_direct(song, settings) == track
+    assert track.is_file()
+
+
 def test_remote_parent_dir_handles_soulseek_separators():
     assert (
         _remote_parent_dir('@@wibgr\\Album\\06 - Track.mp3')

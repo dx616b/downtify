@@ -1525,6 +1525,30 @@ def _slskd_override_row(song: dict[str, Any]) -> Optional[dict[str, Any]]:
     return {'username': username, 'filename': filename, 'size': max(0, size)}
 
 
+def _log_manual_override_tag_difference(
+    found: Path, spotify_row: dict[str, Any], filename: str
+) -> None:
+    """Note tag differences on a manual pick without rejecting the file.
+
+    The user chose this exact remote file, so their intent outranks the
+    automatic tag comparison used for search-based candidates.
+    """
+    if verify_downloaded_file_matches_spotify(found, spotify_row):
+        return
+    meta = read_audio_metadata(found)
+    mismatch_row = {
+        **spotify_row,
+        'name': str(meta.get('title') or ''),
+        'artists': list(meta.get('artists') or []),
+        'library_from_tags': True,
+    }
+    logger.info(
+        'slskd: manual override tags differ {}; keeping user pick file={!r}',
+        spotify_file_tag_mismatch_label(mismatch_row),
+        _file_basename(filename)[:120],
+    )
+
+
 def _download_slskd_direct(
     song: dict[str, Any],
     settings: dict[str, Any],
@@ -1648,17 +1672,8 @@ def _download_slskd_direct(
                 leave_in_place=leave_in_place,
                 expected_size=expected_size,
             )
-        if found is not None and not verify_downloaded_file_matches_spotify(
-            found, spotify_row
-        ):
-            logger.info(
-                'slskd: manual override tags mismatch title={!r} file={!r}',
-                song.get('name'),
-                _file_basename(filename)[:120],
-            )
-            _discard_mismatched_download(found)
-            found = None
         if found is not None:
+            _log_manual_override_tag_difference(found, spotify_row, filename)
             return _finalize_slskd_path(found, output_dir, leave_in_place)
     return None
 
