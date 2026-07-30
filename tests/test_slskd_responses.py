@@ -50,10 +50,10 @@ def test_slskd_search_queries_include_full_and_short_radio_mix():
         'artists': ['Y:K'],
         'name': 'Loud Enough - Radio Mix',
     })
-    assert queries[0] == 'Y:K Loud Enough - Radio Mix'
-    assert 'Y:K Loud Enough' in queries
-    assert 'Y:K Loud Enough - Radio Mix' in queries
+    assert queries[0] == 'Y K Loud Enough Radio Mix'
+    assert 'Y K Loud Enough' in queries
     assert 'Loud Enough' in queries
+    assert all(not any(char in query for char in ':()-') for query in queries)
 
 
 def test_rank_accepts_radio_mix_filename_for_radio_mix_track():

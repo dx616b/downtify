@@ -9,6 +9,7 @@ from downtify.track_tag_match import (
     duration_tolerances_from_settings,
     media_duration_matches_mix_variant,
     media_duration_matches_song,
+    normalize_search_keywords,
     remote_adds_unwanted_variant,
     remote_text_unacceptable,
     remote_title_unacceptable,
@@ -150,6 +151,13 @@ def test_duration_tolerances_from_slskd_settings():
 def test_strip_mix_suffix():
     assert strip_mix_suffix('Loud Enough - Radio Mix') == 'Loud Enough'
     assert strip_mix_suffix('Heat - Extended Mix') == 'Heat'
+
+
+def test_normalize_search_keywords_removes_punctuation():
+    assert (
+        normalize_search_keywords("Y:K - Don't Touch (Extended Mix)")
+        == 'Y K Dont Touch Extended Mix'
+    )
 
 
 def test_candidate_adds_mix_variant_last_resort_only():

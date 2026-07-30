@@ -149,6 +149,34 @@ def test_find_match_falls_back_when_song_rows_have_no_video_id(monkeypatch):
     assert match['videoId'] == 'abc123def45'
 
 
+def test_find_match_uses_plain_keyword_queries(monkeypatch):
+    queries: list[str] = []
+
+    class FakeYTM:
+        @staticmethod
+        def search(query, filter=None, limit=10):
+            queries.append(query)
+            if filter == 'songs':
+                return [
+                    {
+                        'title': "Don't Touch (Extended Mix)",
+                        'videoId': 'plain123456',
+                        'duration_seconds': 240,
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr(providers, '_ytm', FakeYTM)
+    video_id, _match = providers.find_match({
+        'name': "Don't Touch - Extended Mix",
+        'artists': ['Y:K'],
+        'duration': 240,
+    })
+    assert video_id == 'plain123456'
+    assert queries[0] == 'Y K Dont Touch Extended Mix'
+    assert all(not any(char in query for char in ":()'-") for query in queries)
+
+
 def test_youtube_title_rejects_live_when_spotify_is_studio():
     assert youtube_title_has_negative_keyword(
         'Old Man River',

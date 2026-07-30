@@ -161,6 +161,14 @@ def strip_mix_suffix(title: str) -> str:
     return _MIX_SUFFIX_RE.sub('', str(title or '').strip()).strip()
 
 
+def normalize_search_keywords(text: str) -> str:
+    """Convert metadata text to plain search keywords without punctuation."""
+
+    normalized = unicodedata.normalize('NFKC', str(text or ''))
+    normalized = re.sub(r"[''`\u2019]", '', normalized)
+    return re.sub(r'[\W_]+', ' ', normalized).strip()
+
+
 def candidate_adds_mix_variant(
     spotify_title: str, candidate_title: str
 ) -> bool:

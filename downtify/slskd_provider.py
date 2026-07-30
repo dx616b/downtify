@@ -20,6 +20,7 @@ from .track_tag_match import (
     duration_tolerances_from_settings,
     media_duration_matches_mix_variant,
     media_duration_matches_song,
+    normalize_search_keywords,
     remote_text_unacceptable,
     snapshot_spotify_metadata,
     spotify_file_tag_mismatch_label,
@@ -592,7 +593,7 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
     seen: set[str] = set()
 
     def add(q: str) -> None:
-        normalized = _normalize_search_text(q)
+        normalized = normalize_search_keywords(q)
         if normalized and normalized not in seen:
             seen.add(normalized)
             queries.append(normalized)
