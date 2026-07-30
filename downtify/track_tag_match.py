@@ -45,34 +45,31 @@ _WRONG_MATCH_TITLE_KEYWORDS = (
 # Variant modifiers (live, remix, karaoke, …) shared by YouTube and slskd.
 # Use word-boundary-ish patterns for short tokens (live, remix) to avoid
 # false positives inside unrelated words (e.g. "Oliver", "deliver").
-_UNWANTED_REMOTE_VARIANT_KEYWORDS = (
-    'karaoke',
-    'instrumental',
-    'acapella',
-    'a cappella',
-    'cover ',
-    'cover)',
-    'tribute',
-    'guitar lesson',
-    'sped up',
-    'slowed',
-    'reverb',
-    'nightcore',
-    '8d audio',
-    'bass boosted',
-    ' remix',
-    '(remix',
-    'remix)',
-    'extended',
-    ' clean',
-    'clean version',
-    ' live',
-    '- live',
-    '(live',
-    'live)',
-    'live version',
-    'live at',
-    'live from',
+_UNWANTED_REMOTE_VARIANT_GROUPS = (
+    ('karaoke',),
+    ('instrumental',),
+    ('acapella', 'a cappella'),
+    ('cover ', 'cover)'),
+    ('tribute',),
+    ('guitar lesson',),
+    ('sped up',),
+    ('slowed',),
+    ('reverb',),
+    ('nightcore',),
+    ('8d audio',),
+    ('bass boosted',),
+    (' remix', '(remix', 'remix)'),
+    ('extended',),
+    (' clean', 'clean version'),
+    (
+        ' live',
+        '- live',
+        '(live',
+        'live)',
+        'live version',
+        'live at',
+        'live from',
+    ),
 )
 
 
@@ -91,10 +88,15 @@ def remote_adds_unwanted_variant(
     spotify_blob = f'{spotify_title or ""} {artists}'.casefold()
     remote_l = str(remote_text or '').casefold()
     skip = skip_keywords or frozenset()
-    return any(
-        kw not in skip and kw in remote_l and kw not in spotify_blob
-        for kw in _UNWANTED_REMOTE_VARIANT_KEYWORDS
-    )
+    for markers in _UNWANTED_REMOTE_VARIANT_GROUPS:
+        active = tuple(marker for marker in markers if marker not in skip)
+        if not active:
+            continue
+        if any(marker in remote_l for marker in active) and not any(
+            marker in spotify_blob for marker in markers
+        ):
+            return True
+    return False
 
 
 def _remote_adds_spam_keyword(spotify_title: str, remote_text: str) -> bool:

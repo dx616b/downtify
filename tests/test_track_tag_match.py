@@ -226,6 +226,25 @@ def test_remote_text_unacceptable_unifies_spam_and_variants():
     )
 
 
+def test_named_remix_allows_parenthesized_remote_title():
+    spotify = 'Raml - Billy Esteban Remix'
+    remote = 'Neyoud - Raml (Billy Esteban Remix)'
+    assert not remote_adds_unwanted_variant(spotify, remote)
+    assert not remote_text_unacceptable(
+        spotify,
+        remote,
+        spotify_artists=['Neyoud', 'Billy Esteban'],
+    )
+
+
+def test_parenthesized_remix_is_rejected_for_studio_title():
+    assert remote_adds_unwanted_variant(
+        'Raml',
+        'Neyoud - Raml (Billy Esteban Remix)',
+        spotify_artists=['Neyoud'],
+    )
+
+
 def test_remote_adds_unwanted_variant_does_not_match_live_inside_oliver():
     assert not remote_adds_unwanted_variant(
         'Song',
