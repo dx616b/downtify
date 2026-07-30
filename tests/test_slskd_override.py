@@ -190,6 +190,83 @@ def test_remote_file_size_browses_peer_directory(monkeypatch):
     assert calls[0][2] == {'directory': '@@wibgr\\Album'}
 
 
+def test_remote_file_size_falls_back_to_search(monkeypatch):
+    client = SlskdClient({
+        'base_url': 'http://slskd:5030',
+        'api_key': 'k',
+        'search_retries': 1,
+        'search_poll_seconds': 1,
+    })
+    monkeypatch.setattr(client, 'directory_contents', lambda *a, **k: [])
+    monkeypatch.setattr(client, 'start_search', lambda q: 'search-1')
+    monkeypatch.setattr(
+        client,
+        '_request',
+        lambda method, path, **kw: {'isComplete': True},
+    )
+    monkeypatch.setattr(
+        client,
+        'search_responses',
+        lambda search_id: [
+            {
+                'username': 'misticgris',
+                'files': [
+                    {
+                        'filename': (
+                            '@@xjjro\\MUSIC\\Mantra (Elfenberg Remix).mp3'
+                        ),
+                        'size': 12_345_678,
+                    }
+                ],
+            }
+        ],
+    )
+    deleted: list[str] = []
+    monkeypatch.setattr(client, 'delete_search', deleted.append)
+
+    size = client.remote_file_size(
+        'misticgris',
+        '@@xjjro\\MUSIC\\Mantra (Elfenberg Remix).mp3',
+    )
+    assert size == 12_345_678
+    assert deleted == ['search-1']
+
+
+def test_find_transfer_prefers_active_over_aborted():
+    client = SlskdClient({'base_url': 'http://slskd:5030', 'api_key': 'k'})
+    client.list_download_transfers = lambda: [  # type: ignore[method-assign]
+        {
+            'username': 'misticgris',
+            'directories': [
+                {
+                    'files': [
+                        {
+                            'id': 'abort-1',
+                            'filename': '@@x\\Mantra.mp3',
+                            'state': 'Completed, Aborted',
+                            'size': 0,
+                        },
+                        {
+                            'id': 'ok-1',
+                            'filename': '@@x\\Mantra.mp3',
+                            'state': 'InProgress',
+                            'size': 123,
+                        },
+                    ]
+                }
+            ],
+        }
+    ]
+    row = client.find_transfer('misticgris', '@@x\\Mantra.mp3')
+    assert row is not None
+    assert row['id'] == 'ok-1'
+    ignored = client.find_transfer(
+        'misticgris', '@@x\\Mantra.mp3', ignore_ids={'ok-1'}
+    )
+    assert ignored is not None
+    assert ignored['id'] == 'abort-1'
+
+
 def test_manual_override_resolves_missing_size_before_enqueue(
     monkeypatch, tmp_path: Path
 ):
@@ -261,28 +338,40 @@ def test_wait_reenqueues_with_remote_size_after_mismatch(
 ):
     monkeypatch.setattr('downtify.slskd_provider.time.sleep', lambda _s: None)
     enqueued: list[dict[str, Any]] = []
-    transfers = [
-        {
-            'id': 'abort-1',
-            'state': 'Completed, Aborted',
-            'exception': (
-                'Transfer aborted: the remote size of 36988402 does not '
-                'match expected size 0'
-            ),
-            'bytesTransferred': 0,
-            'size': 0,
-        },
-        {
-            'id': 'ok-1',
-            'state': 'InProgress',
-            'bytesTransferred': 36988402,
-            'size': 36988402,
-            'percentComplete': 100,
-        },
-    ]
+    aborted = {
+        'id': 'abort-1',
+        'state': 'Completed, Aborted',
+        'exception': (
+            'Transfer aborted: the remote size of 36988402 does not '
+            'match expected size 0'
+        ),
+        'bytesTransferred': 0,
+        'size': 0,
+    }
+    active = {
+        'id': 'ok-1',
+        'state': 'InProgress',
+        'bytesTransferred': 36988402,
+        'size': 36988402,
+        'percentComplete': 100,
+    }
+    # After retry, slskd often still lists the aborted transfer first.
+    transfers = [aborted, aborted, active]
 
     client = MagicMock()
-    client.find_transfer.side_effect = lambda user, name: transfers.pop(0)
+
+    def _find(
+        user: str, name: str, ignore_ids: Any = None
+    ) -> dict[str, Any] | None:
+        ignored = ignore_ids or set()
+        while transfers:
+            row = transfers.pop(0)
+            if str(row.get('id') or '') in ignored:
+                continue
+            return row
+        return None
+
+    client.find_transfer.side_effect = _find
     client.enqueue_download.side_effect = lambda row: bool(
         enqueued.append(dict(row)) or True
     )
@@ -291,12 +380,12 @@ def test_wait_reenqueues_with_remote_size_after_mismatch(
     found.write_bytes(b'0')
     calls = {'n': 0}
 
-    def _find(*_args: Any, **_kwargs: Any) -> Any:
+    def _find_disk(*_args: Any, **_kwargs: Any) -> Any:
         calls['n'] += 1
-        return found if calls['n'] > 1 else None
+        return found if calls['n'] > 2 else None
 
     monkeypatch.setattr(
-        'downtify.slskd_provider._find_on_disk_for_song', _find
+        'downtify.slskd_provider._find_on_disk_for_song', _find_disk
     )
     monkeypatch.setattr(
         'downtify.slskd_provider._disk_complete',
