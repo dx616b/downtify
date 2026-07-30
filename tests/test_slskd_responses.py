@@ -77,6 +77,35 @@ def test_rank_accepts_radio_mix_filename_for_radio_mix_track():
     assert len(ranked) == 1
 
 
+def test_rank_accepts_parenthesized_named_remix():
+    song = {
+        'artists': ['Neyoud', 'Billy Esteban'],
+        'name': 'Raml - Billy Esteban Remix',
+        'duration': 516,
+    }
+    responses = [
+        {
+            'username': 'WaaaltyWaaalt',
+            'fileCount': 1,
+            'hasFreeUploadSlot': True,
+            'files': [
+                {
+                    'filename': (
+                        '@@share\\Neyoud, Billy Esteban - '
+                        'Raml (Billy Esteban Remix).mp3'
+                    ),
+                    'size': 20_140_000,
+                    'length': 516,
+                    'bitRate': 320,
+                },
+            ],
+        },
+    ]
+    ranked = _rank_slskd_candidates(song, responses, {})
+    assert len(ranked) == 1
+    assert ranked[0]['match_score'] >= _match_min_score({})
+
+
 def test_collect_matching_files_skips_wrong_extension_and_keywords():
     song = {
         'artists': ['Melxdie'],
