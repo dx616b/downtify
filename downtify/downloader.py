@@ -28,6 +28,7 @@ from mutagen.id3 import (
     TRCK,
     USLT,
 )
+from mutagen.id3 import delete as id3_delete
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
@@ -1312,7 +1313,9 @@ class Downloader:
     ) -> None:
         label = _provider_display_name(provider)
         if progress_cb:
-            msg = f'{label} · tagging metadata' if label else 'Tagging metadata'
+            msg = (
+                f'{label} · tagging metadata' if label else 'Tagging metadata'
+            )
             progress_cb(96.0, msg, provider)
 
         if not song.get('genre'):
@@ -1343,7 +1346,11 @@ class Downloader:
 
         if self.lyrics_providers:
             if progress_cb:
-                lyr_msg = f'{label} · fetching lyrics' if label else 'Fetching lyrics'
+                lyr_msg = (
+                    f'{label} · fetching lyrics'
+                    if label
+                    else 'Fetching lyrics'
+                )
                 progress_cb(97.0, lyr_msg, provider)
             try:
                 fetched = lyrics_mod.fetch(song, self.lyrics_providers)
@@ -1860,6 +1867,74 @@ def embed_metadata(path: Path, song: dict[str, Any]) -> None:
         )
 
 
+def _mpeg_audio_frame_offset(data: bytes) -> int:
+    """Byte offset of the first MPEG audio frame (0 if none found)."""
+
+    start = 0
+    if len(data) >= 10 and data[:3] == b'ID3':
+        size = (
+            ((data[6] & 0x7F) << 21)
+            | ((data[7] & 0x7F) << 14)
+            | ((data[8] & 0x7F) << 7)
+            | (data[9] & 0x7F)
+        )
+        claimed_end = 10 + size
+        # Oversized/corrupt ID3 claims must not skip past EOF.
+        start = 10 if claimed_end > len(data) else claimed_end
+    for i in range(start, max(start, len(data) - 1)):
+        if data[i] == 0xFF and (data[i + 1] & 0xE0) == 0xE0:
+            return i
+    for i in range(0, len(data) - 1):
+        if data[i] == 0xFF and (data[i + 1] & 0xE0) == 0xE0:
+            return i
+    return 0
+
+
+def _strip_mp3_id3_best_effort(path: Path) -> None:
+    """Remove ID3 tags; fall back to MPEG-frame rewrite when mutagen cannot."""
+
+    path_s = str(path)
+    try:
+        id3_delete(path_s)
+        return
+    except Exception:
+        logger.opt(exception=True).debug(
+            'mutagen ID3 delete failed for {}', path.name
+        )
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return
+    offset = _mpeg_audio_frame_offset(data)
+    if offset <= 0:
+        return
+    try:
+        path.write_bytes(data[offset:])
+    except OSError:
+        logger.opt(exception=True).warning(
+            'Could not rewrite MP3 without ID3 for {}', path.name
+        )
+
+
+def _open_mp3_for_tagging(path: Path) -> MP3:
+    """Open an MP3 for tagging; strip corrupt/truncated ID3 headers if needed."""
+
+    path_s = str(path)
+    try:
+        audio = MP3(path_s, ID3=ID3)
+    except Exception as exc:
+        logger.warning(
+            'Corrupt or unreadable ID3 on {}; stripping tags ({})',
+            path.name,
+            exc,
+        )
+        _strip_mp3_id3_best_effort(path)
+        audio = MP3(path_s, ID3=ID3)
+    if audio.tags is None:
+        audio.add_tags()
+    return audio
+
+
 def _tag_mp3(
     path: Path,
     title: str,
@@ -1871,9 +1946,7 @@ def _tag_mp3(
     track_number: Optional[int],
     album_track_total: Optional[int],
 ) -> None:
-    audio = MP3(str(path), ID3=ID3)
-    if audio.tags is None:
-        audio.add_tags()
+    audio = _open_mp3_for_tagging(path)
     audio.tags.delall('APIC')
     audio.tags.add(TIT2(encoding=3, text=title))
     if artists:
@@ -2069,9 +2142,7 @@ def embed_lyrics(path: Path, lyrics: 'lyrics_mod.Lyrics') -> None:
 
     suffix = path.suffix.lower().lstrip('.')
     if suffix == 'mp3':
-        audio = MP3(str(path), ID3=ID3)
-        if audio.tags is None:
-            audio.add_tags()
+        audio = _open_mp3_for_tagging(path)
         audio.tags.delall('USLT')
         audio.tags.add(USLT(encoding=3, lang='eng', desc='', text=text))
         audio.save(v2_version=3)
