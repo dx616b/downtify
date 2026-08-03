@@ -168,7 +168,7 @@ def test_named_remixer_from_dash_and_paren():
         == 'Francis Mercier'
     )
     assert named_remixer('Raml (Billy Esteban Remix)') == 'Billy Esteban'
-    assert named_remixer('Osama - Edit') == ''
+    assert not named_remixer('Osama - Edit')
 
 
 def test_titles_align_edit_vs_rework_radio_edit():
