@@ -232,3 +232,115 @@ def test_retry_failed_queue_requeues_only_errors():
         api.state.downloader = prev_downloader
         api.state.connections = prev_connections
         api._run_download = prev_run_download
+
+
+def test_retry_failed_downloads_refreshes_playlists():
+    api.state.download_jobs.clear()
+    prev_downloader = api.state.downloader
+    prev_connections = api.state.connections
+    prev_run_download = api._run_download
+    api.state.downloader = object()
+    api.state.connections = AsyncMock()
+    scheduled: list[set[str]] = []
+    try:
+        song = {
+            'song_id': 'err-1',
+            'name': 'Fail',
+            'downtify_playlist_name': 'My Mix',
+        }
+        err_id = api._register_job(song, status='error')
+
+        async def _ok_download(_song, _song_id, **kwargs):
+            assert kwargs.get('refresh_playlists') is False
+            assert kwargs.get('playlist_name') == 'My Mix'
+            return 'track.mp3'
+
+        async def _schedule(names: set[str]) -> None:
+            scheduled.append(set(names))
+
+        api._run_download = _ok_download  # type: ignore[method-assign]
+
+        with (
+            patch.object(
+                api,
+                '_playlist_context_from_hints',
+                return_value={
+                    'playlist_name': 'My Mix',
+                    'spotify_playlist_id': 'pl123',
+                    'track_order': 2,
+                    'subdir': 'My Mix',
+                },
+            ),
+            patch.object(
+                api,
+                '_playlists_for_successful_download',
+                return_value={'My Mix', 'Other'},
+            ),
+            patch.object(
+                api,
+                '_schedule_playlist_refresh_after_download',
+                side_effect=_schedule,
+            ),
+            patch.object(api, 'invalidate_playlist_batch_reports_cache'),
+        ):
+            affected = asyncio.run(
+                api._retry_failed_downloads([(err_id, song)])
+            )
+
+        assert affected == {'My Mix', 'Other'}
+        assert scheduled == [{'My Mix', 'Other'}]
+        api.state.connections.broadcast.assert_awaited_with({
+            'status': 'playlist_batches_changed',
+            'queue_pruned': 0,
+        })
+    finally:
+        api.state.download_jobs.clear()
+        api.state.downloader = prev_downloader
+        api.state.connections = prev_connections
+        api._run_download = prev_run_download
+
+
+def test_retry_failed_downloads_skips_refresh_when_nothing_succeeds():
+    api.state.download_jobs.clear()
+    prev_downloader = api.state.downloader
+    prev_connections = api.state.connections
+    prev_run_download = api._run_download
+    api.state.downloader = object()
+    api.state.connections = AsyncMock()
+    try:
+        song = {'song_id': 'err-1', 'name': 'Fail'}
+        err_id = api._register_job(song, status='error')
+
+        async def _fail_download(*_args, **_kwargs):
+            return None
+
+        api._run_download = _fail_download  # type: ignore[method-assign]
+
+        with (
+            patch.object(
+                api,
+                '_playlist_context_from_hints',
+                return_value={},
+            ),
+            patch.object(
+                api,
+                '_schedule_playlist_refresh_after_download',
+                new_callable=AsyncMock,
+            ) as schedule,
+            patch.object(api, 'invalidate_playlist_batch_reports_cache'),
+        ):
+            affected = asyncio.run(
+                api._retry_failed_downloads([(err_id, song)])
+            )
+
+        assert affected == set()
+        schedule.assert_not_awaited()
+        api.state.connections.broadcast.assert_awaited_with({
+            'status': 'playlist_batches_changed',
+            'queue_pruned': 0,
+        })
+    finally:
+        api.state.download_jobs.clear()
+        api.state.downloader = prev_downloader
+        api.state.connections = prev_connections
+        api._run_download = prev_run_download

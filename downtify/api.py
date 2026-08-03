@@ -1266,6 +1266,21 @@ async def _run_download(  # noqa: PLR0914
             'status': 'done',
             'filename': existing,
         })
+        pl_name = playlist_name
+        pl_id = spotify_playlist_id
+        order = track_order
+        affected = await loop.run_in_executor(
+            None,
+            lambda: _register_download_playlists_on_disk(
+                song,
+                existing,
+                playlist_name=pl_name,
+                spotify_playlist_id=pl_id,
+                track_order=order,
+            ),
+        )
+        if refresh_playlists and affected:
+            await _schedule_playlist_refresh_after_download(affected)
         return existing
 
     _TERMINAL_JOB_STATUSES = frozenset({'done', 'error'})
@@ -2956,6 +2971,52 @@ def clear_completed_queue() -> dict:
     return {'removed': _clear_completed_jobs()}
 
 
+async def _retry_failed_downloads(
+    retries: list[tuple[str, dict[str, Any]]],
+) -> set[str]:
+    """Re-run errored jobs; register catalog then refresh playlists once."""
+
+    async def _retry_one(song_id: str, song: dict[str, Any]) -> set[str]:
+        pl_ctx = _playlist_context_from_hints(song)
+        primary = pl_ctx.get('playlist_name')
+        try:
+            filename = await _run_download(
+                song,
+                song_id,
+                subdir=pl_ctx.get('subdir'),
+                playlist_name=primary,
+                spotify_playlist_id=pl_ctx.get('spotify_playlist_id'),
+                track_order=int(pl_ctx.get('track_order') or 0),
+                refresh_playlists=False,
+            )
+        except Exception:
+            logger.opt(exception=True).debug(
+                'retry failed download crashed for {}', song_id
+            )
+            return set()
+        if not filename:
+            return set()
+        return _playlists_for_successful_download(
+            song, primary_playlist=primary
+        )
+
+    results = await asyncio.gather(
+        *[_retry_one(song_id, song) for song_id, song in retries],
+        return_exceptions=False,
+    )
+    affected: set[str] = set()
+    for names in results:
+        affected.update(names)
+    if affected:
+        await _schedule_playlist_refresh_after_download(affected)
+    invalidate_playlist_batch_reports_cache()
+    await state.connections.broadcast({
+        'status': 'playlist_batches_changed',
+        'queue_pruned': 0,
+    })
+    return affected
+
+
 @router.post('/api/queue/retry-failed')
 async def retry_failed_queue_endpoint() -> dict[str, Any]:
     """Re-queue errored jobs and process them under the parallel limiter."""
@@ -2991,30 +3052,7 @@ async def retry_failed_queue_endpoint() -> dict[str, Any]:
             'status': 'queued',
         })
 
-    async def _retry_one(song_id: str, song: dict[str, Any]) -> None:
-        pl_ctx = _playlist_context_from_hints(song)
-        try:
-            await _run_download(
-                song,
-                song_id,
-                subdir=pl_ctx.get('subdir'),
-                playlist_name=pl_ctx.get('playlist_name'),
-                spotify_playlist_id=pl_ctx.get('spotify_playlist_id'),
-                track_order=int(pl_ctx.get('track_order') or 0),
-                refresh_playlists=False,
-            )
-        except Exception:
-            logger.opt(exception=True).debug(
-                'retry failed download crashed for {}', song_id
-            )
-
-    async def _run_retries() -> None:
-        await asyncio.gather(
-            *[_retry_one(song_id, song) for song_id, song in retries],
-            return_exceptions=False,
-        )
-
-    asyncio.create_task(_run_retries())
+    asyncio.create_task(_retry_failed_downloads(retries))
     return {
         'count': len(retries),
         'job_ids': [song_id for song_id, _ in retries],
