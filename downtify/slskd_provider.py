@@ -580,45 +580,42 @@ def _discard_mismatched_download(path: Path) -> None:
 
 
 def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
+    """Build a single Soulseek keyword query for *song*.
+
+    Soulseek matches are AND over tokens, so one well-chosen query beats a
+    cascade of progressively looser searches. Use the primary artist plus the
+    mix-stripped title; append album only when the title is too short to stand
+    alone.
+    """
     artists = [
         str(a).strip()
-        for a in (song.get('artists') or [])[:2]
+        for a in (song.get('artists') or [])
         if str(a).strip()
     ]
-    all_artists = ' '.join(artists)
     primary_artist = artists[0] if artists else ''
-    title = str(song.get('name') or '').strip()
-    short_title = _primary_title(title)
-    queries: list[str] = []
-    seen: set[str] = set()
+    raw_title = str(song.get('name') or '').strip()
+    title = _primary_title(raw_title) or raw_title
+    album = str(song.get('album_name') or '').strip()
 
-    def add(q: str) -> None:
-        normalized = normalize_search_keywords(q)
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            queries.append(normalized)
-
-    # Soulseek search is keyword-oriented. Start with up to two credited
-    # artists, then progressively remove terms so a strict query cannot hide
-    # results.
-    if all_artists and title:
-        add(f'{all_artists} {title}')
-    if all_artists and short_title and short_title != title:
-        add(f'{all_artists} {short_title}')
-    if primary_artist and title and primary_artist != all_artists:
-        add(f'{primary_artist} {title}')
-    if (
-        primary_artist
-        and short_title
-        and short_title != title
-        and primary_artist != all_artists
-    ):
-        add(f'{primary_artist} {short_title}')
+    parts: list[str] = []
+    if primary_artist:
+        parts.append(primary_artist)
     if title:
-        add(title)
-    if short_title and short_title != title:
-        add(short_title)
-    return queries
+        parts.append(title)
+
+    title_tokens = [
+        token for token in normalize_search_keywords(title).split() if token
+    ]
+    short_ambiguous = (
+        bool(album)
+        and len(title_tokens) == 1
+        and len(title_tokens[0]) <= 5
+    )
+    if short_ambiguous:
+        parts.append(album)
+
+    query = normalize_search_keywords(' '.join(parts))
+    return [query] if query else []
 
 
 def _file_extension(filename: str) -> str:
@@ -1413,11 +1410,13 @@ def _wait_for_slskd_file(  # noqa: PLR0914
         )
         if transfer:
             try:
-                expected_size = max(
-                    expected_size, int(transfer.get('size') or 0)
-                )
+                xfer_size = int(transfer.get('size') or 0)
             except (TypeError, ValueError):
-                pass
+                xfer_size = 0
+            # Prefer the live transfer size — search results often overestimate,
+            # which makes _disk_complete reject a finished file forever.
+            if xfer_size > 0:
+                expected_size = xfer_size
             if _transfer_failed(transfer):
                 abort_id = str(transfer.get('id') or '')
                 if size_retried:
@@ -1445,7 +1444,12 @@ def _wait_for_slskd_file(  # noqa: PLR0914
                 time.sleep(max(1, interval))
                 continue
             transferred = int(transfer.get('bytesTransferred') or 0)
-            if transferred > last_bytes:
+            if _transfer_succeeded(transfer):
+                # Finished in slskd — keep polling disk; do not stall-timeout
+                # a completed transfer whose file has not appeared yet.
+                last_bytes = max(last_bytes, transferred)
+                last_progress = time.monotonic()
+            elif transferred > last_bytes:
                 last_bytes = transferred
                 last_progress = time.monotonic()
             elif time.monotonic() - last_progress > queued_timeout:

@@ -137,9 +137,17 @@ def youtube_title_has_negative_keyword(
     return remote_adds_unwanted_variant(spotify_title, candidate_title)
 
 
+# Trailing dash-suffixes: "Song - Radio Edit", "Song - Edit", "Song - Remix".
 _MIX_SUFFIX_RE = re.compile(
     r'\s*[-–—]\s*(?:radio\s+(?:mix|edit)|extended\s+mix|club\s+mix|'
-    r'original\s+mix|clean\s+version|explicit\s+version|remix)\s*$',
+    r'original\s+mix|clean\s+version|explicit\s+version|remix|'
+    r'rework(?:\s+radio\s+edit)?|edit)\s*$',
+    re.IGNORECASE,
+)
+# Trailing parentheticals with mix labels:
+# "Osama (Bruno Be, Ralk Rework Radio Edit)".
+_MIX_PAREN_RE = re.compile(
+    r'\s*\([^)]*(?:radio\s+)?(?:mix|edit|rework|remix|version)[^)]*\)\s*$',
     re.IGNORECASE,
 )
 
@@ -158,7 +166,9 @@ MIX_VARIANT_REMOTE_SKIP_KEYWORDS = frozenset({'extended'})
 def strip_mix_suffix(title: str) -> str:
     """Drop trailing mix/edit suffixes for broader audio search queries."""
 
-    return _MIX_SUFFIX_RE.sub('', str(title or '').strip()).strip()
+    text = str(title or '').strip()
+    text = _MIX_PAREN_RE.sub('', text).strip()
+    return _MIX_SUFFIX_RE.sub('', text).strip()
 
 
 def normalize_search_keywords(text: str) -> str:
@@ -245,11 +255,19 @@ def _titles_align(expected: str, from_file: str) -> bool:
     file_title_n = _normalize_tag_loose(from_file)
     if not title_n or not file_title_n:
         return True
-    return (
+    if (
         title_n == file_title_n
         or title_n in file_title_n
         or file_title_n in title_n
-    )
+    ):
+        return True
+    # Spotify often uses "Song - Edit" while Soulseek tags keep the full
+    # mix label ("Song (… Rework Radio Edit)"). Compare mix-stripped cores.
+    exp_core = _normalize_tag_loose(strip_mix_suffix(expected))
+    file_core = _normalize_tag_loose(strip_mix_suffix(from_file))
+    if not exp_core or not file_core:
+        return False
+    return exp_core == file_core
 
 
 def _artist_lists_align(expected: list[str], actual: list[str]) -> bool:

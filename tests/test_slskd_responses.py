@@ -32,28 +32,38 @@ def test_flatten_slskd_responses_attaches_username_to_files():
     assert rows[0]['filename'] == 'Artist - Track.mp3'
 
 
-def test_slskd_search_queries_prefers_all_artists_then_title():
+def test_slskd_search_queries_single_primary_artist_and_title():
     queries = _slskd_search_queries({
         'artists': ['Facundo Mohrr', 'Valdovinos'],
         'name': 'No Mod',
         'album_name': 'Burning',
     })
-    assert queries == [
-        'Facundo Mohrr Valdovinos No Mod',
-        'Facundo Mohrr No Mod',
-        'No Mod',
-    ]
+    assert queries == ['Facundo Mohrr No Mod']
 
 
-def test_slskd_search_queries_include_full_and_short_radio_mix():
+def test_slskd_search_queries_strips_mix_suffix_to_core_title():
     queries = _slskd_search_queries({
         'artists': ['Y:K'],
         'name': 'Loud Enough - Radio Mix',
     })
-    assert queries[0] == 'Y K Loud Enough Radio Mix'
-    assert 'Y K Loud Enough' in queries
-    assert 'Loud Enough' in queries
-    assert all(not any(char in query for char in ':()-') for query in queries)
+    assert queries == ['Y K Loud Enough']
+
+
+def test_slskd_search_queries_strips_edit_and_uses_primary_artist():
+    queries = _slskd_search_queries({
+        'artists': ['Zakes Bantwini', 'Kasango'],
+        'name': 'Osama - Edit',
+    })
+    assert queries == ['Zakes Bantwini Osama']
+
+
+def test_slskd_search_queries_appends_album_for_short_title():
+    queries = _slskd_search_queries({
+        'artists': ['Artist'],
+        'name': 'You',
+        'album_name': 'Debut',
+    })
+    assert queries == ['Artist You Debut']
 
 
 def test_rank_accepts_radio_mix_filename_for_radio_mix_track():

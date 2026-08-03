@@ -49,6 +49,63 @@ def test_wait_for_slskd_file_queued_timeout_without_transfer(monkeypatch):
     assert client.find_transfer.called
 
 
+def test_wait_for_slskd_file_completed_transfer_not_stalled(
+    monkeypatch, tmp_path: Path
+):
+    """A finished slskd transfer must not stall-timeout before the file appears."""
+    client = MagicMock()
+    client.find_transfer.return_value = {
+        'id': 't1',
+        'state': 'Completed, Succeeded',
+        'size': 1000,
+        'bytesTransferred': 1000,
+        'bytesRemaining': 0,
+        'percentComplete': 100,
+    }
+
+    target = tmp_path / 'file.mp3'
+    calls = {'n': 0}
+
+    def fake_find(*_a, **_k):
+        calls['n'] += 1
+        if calls['n'] < 3:
+            return None
+        target.write_bytes(b'x' * 1000)
+        return target
+
+    monkeypatch.setattr(
+        'downtify.slskd_provider.time.sleep', lambda _s: None
+    )
+    monkeypatch.setattr(
+        'downtify.slskd_provider._find_on_disk_for_song', fake_find
+    )
+
+    clock = {'t': 1000.0}
+
+    def tick() -> float:
+        clock['t'] += 5.0
+        return clock['t']
+
+    monkeypatch.setattr('downtify.slskd_provider.time.monotonic', tick)
+
+    result = _wait_for_slskd_file(
+        client,
+        {'name': 'Song'},
+        'peer',
+        'file.mp3',
+        {
+            'poll_interval_seconds': 1,
+            'poll_max_attempts': 10,
+            # Would fire on a completed transfer under the old stall logic.
+            'queued_timeout_seconds': 2,
+        },
+        [tmp_path],
+        expected_size=1000,
+        deadline=1600.0,
+    )
+    assert result == target
+
+
 def test_resolve_video_id_falls_back_after_slskd_timeout(
     monkeypatch, tmp_path
 ):
