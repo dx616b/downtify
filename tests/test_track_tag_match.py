@@ -151,6 +151,41 @@ def test_duration_tolerances_from_slskd_settings():
 def test_strip_mix_suffix():
     assert strip_mix_suffix('Loud Enough - Radio Mix') == 'Loud Enough'
     assert strip_mix_suffix('Heat - Extended Mix') == 'Heat'
+    assert strip_mix_suffix('Osama - Edit') == 'Osama'
+    assert (
+        strip_mix_suffix('Osama (Bruno Be, Ralk Rework Radio Edit)') == 'Osama'
+    )
+
+
+def test_titles_align_edit_vs_rework_radio_edit():
+    """Spotify 'Edit' labels must match Soulseek full mix parentheticals."""
+    assert spotify_aligns_with_file_tags({
+        'spotify_name': 'Osama - Edit',
+        'spotify_artists': ['Zakes Bantwini', 'Kasango'],
+        'name': 'Osama (Bruno Be, Ralk Rework Radio Edit)',
+        'artists': ['Bruno Be', 'Kasango', 'Ralk'],
+        'library_from_tags': True,
+    })
+
+
+def test_verify_accepts_edit_vs_rework_radio_edit_tags(
+    monkeypatch, tmp_path: Path
+) -> None:
+    path = tmp_path / 'osama.flac'
+    path.write_bytes(b'x')
+    monkeypatch.setattr(
+        'downtify.track_tag_match.read_audio_metadata',
+        lambda _p: {
+            'title': 'Osama (Bruno Be, Ralk Rework Radio Edit)',
+            'artists': ['Bruno Be', 'Kasango', 'Ralk'],
+            'album': '',
+        },
+    )
+    spotify_row = snapshot_spotify_metadata({
+        'name': 'Osama - Edit',
+        'artists': ['Zakes Bantwini', 'Kasango'],
+    })
+    assert verify_downloaded_file_matches_spotify(path, spotify_row)
 
 
 def test_normalize_search_keywords_removes_punctuation():
