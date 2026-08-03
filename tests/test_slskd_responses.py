@@ -32,32 +32,32 @@ def test_flatten_slskd_responses_attaches_username_to_files():
     assert rows[0]['filename'] == 'Artist - Track.mp3'
 
 
-def test_slskd_search_queries_single_primary_artist_and_title():
+def test_slskd_search_queries_uses_all_artists_and_full_title():
     queries = _slskd_search_queries({
         'artists': ['Facundo Mohrr', 'Valdovinos'],
         'name': 'No Mod',
         'album_name': 'Burning',
     })
-    assert queries == ['Facundo Mohrr No Mod']
+    assert queries == ['Facundo Mohrr Valdovinos No Mod']
 
 
-def test_slskd_search_queries_strips_mix_suffix_to_core_title():
+def test_slskd_search_queries_keeps_mix_label_in_title():
     queries = _slskd_search_queries({
         'artists': ['Y:K'],
         'name': 'Loud Enough - Radio Mix',
     })
-    assert queries == ['Y K Loud Enough']
+    assert queries == ['Y K Loud Enough Radio Mix']
 
 
-def test_slskd_search_queries_strips_edit_and_uses_primary_artist():
+def test_slskd_search_queries_keeps_edit_in_title():
     queries = _slskd_search_queries({
         'artists': ['Zakes Bantwini', 'Kasango'],
         'name': 'Osama - Edit',
     })
-    assert queries == ['Zakes Bantwini Osama']
+    assert queries == ['Zakes Bantwini Kasango Osama Edit']
 
 
-def test_slskd_search_queries_includes_named_remixer():
+def test_slskd_search_queries_matches_manual_yuma_search():
     queries = _slskd_search_queries({
         'artists': [
             'Miishu',
@@ -67,7 +67,10 @@ def test_slskd_search_queries_includes_named_remixer():
         ],
         'name': 'Yuma (Se Se Se Se) - Francis Mercier Remix',
     })
-    assert queries == ['Miishu Yuma Se Se Se Se Francis Mercier']
+    assert queries == [
+        'Miishu Emmanuel Jal Francis Mercier Nyadollar '
+        'Yuma Se Se Se Se Francis Mercier Remix'
+    ]
 
 
 def test_slskd_search_queries_appends_album_for_short_title():
@@ -77,6 +80,42 @@ def test_slskd_search_queries_appends_album_for_short_title():
         'album_name': 'Debut',
     })
     assert queries == ['Artist You Debut']
+
+
+def test_rank_accepts_yuma_with_se_count_mismatch():
+    """Spotify (Se Se Se Se) must still match Soulseek (Se Se Se)."""
+    song = {
+        'artists': [
+            'Miishu',
+            'Emmanuel Jal',
+            'Francis Mercier',
+            'Nyadollar',
+        ],
+        'name': 'Yuma (Se Se Se Se) - Francis Mercier Remix',
+        'duration': 196,
+    }
+    filename = (
+        r'music\Singletons\Miishu, Emmanuel Jal, Nyadollar, Francis Mercier\\'
+        r'Yuma (Se Se Se) - Francis Mercier Remix.flac'
+    )
+    responses = [
+        {
+            'username': 'fishingpvalues',
+            'fileCount': 1,
+            'hasFreeUploadSlot': True,
+            'files': [
+                {
+                    'filename': filename,
+                    'size': 25_360_000,
+                    'length': 196,
+                    'bitRate': 0,
+                },
+            ],
+        },
+    ]
+    ranked = _rank_slskd_candidates(song, responses, {})
+    assert len(ranked) == 1
+    assert ranked[0]['username'] == 'fishingpvalues'
 
 
 def test_rank_accepts_radio_mix_filename_for_radio_mix_track():
