@@ -9,6 +9,7 @@ from downtify.track_tag_match import (
     duration_tolerances_from_settings,
     media_duration_matches_mix_variant,
     media_duration_matches_song,
+    named_remixer,
     normalize_search_keywords,
     remote_adds_unwanted_variant,
     remote_text_unacceptable,
@@ -164,6 +165,19 @@ def test_strip_mix_suffix():
     assert (
         strip_mix_suffix('Osama (Bruno Be, Ralk Rework Radio Edit)') == 'Osama'
     )
+    assert (
+        strip_mix_suffix('Yuma (Se Se Se Se) - Francis Mercier Remix')
+        == 'Yuma (Se Se Se Se)'
+    )
+
+
+def test_named_remixer_from_dash_and_paren():
+    assert (
+        named_remixer('Yuma (Se Se Se Se) - Francis Mercier Remix')
+        == 'Francis Mercier'
+    )
+    assert named_remixer('Raml (Billy Esteban Remix)') == 'Billy Esteban'
+    assert not named_remixer('Osama - Edit')
 
 
 def test_titles_align_edit_vs_rework_radio_edit():

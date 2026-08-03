@@ -57,6 +57,19 @@ def test_slskd_search_queries_strips_edit_and_uses_primary_artist():
     assert queries == ['Zakes Bantwini Osama']
 
 
+def test_slskd_search_queries_includes_named_remixer():
+    queries = _slskd_search_queries({
+        'artists': [
+            'Miishu',
+            'Emmanuel Jal',
+            'Francis Mercier',
+            'Nyadollar',
+        ],
+        'name': 'Yuma (Se Se Se Se) - Francis Mercier Remix',
+    })
+    assert queries == ['Miishu Yuma Se Se Se Se Francis Mercier']
+
+
 def test_slskd_search_queries_appends_album_for_short_title():
     queries = _slskd_search_queries({
         'artists': ['Artist'],
