@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from downtify.slskd_provider import (
     SlskdClient,
     _collect_matching_files,
@@ -80,6 +82,38 @@ def test_slskd_search_queries_appends_album_for_short_title():
         'album_name': 'Debut',
     })
     assert queries == ['Artist You Debut']
+
+
+def test_slskd_search_queries_skips_album_when_same_as_title():
+    queries = _slskd_search_queries({
+        'artists': ['Redoxx', 'Rex Stax'],
+        'name': 'Nenge',
+        'album_name': 'Nenge',
+    })
+    assert queries == ['Redoxx Rex Stax Nenge']
+
+
+def test_start_search_retries_on_http_429(monkeypatch):
+    client = SlskdClient({
+        'base_url': 'https://slskd.example',
+        'api_key': 'k',
+    })
+    calls = {'n': 0}
+    sleeps: list[float] = []
+
+    def fake_request(method: str, path: str, **kwargs: Any):
+        calls['n'] += 1
+        if calls['n'] < 3:
+            response = requests.models.Response()
+            response.status_code = 429
+            raise requests.HTTPError('429', response=response)
+        return {'id': 'search-ok'}
+
+    monkeypatch.setattr(client, '_request', fake_request)
+    monkeypatch.setattr('downtify.slskd_provider.time.sleep', sleeps.append)
+    assert client.start_search('Artist Title') == 'search-ok'
+    assert calls['n'] == 3
+    assert sleeps == [2.0, 4.0]
 
 
 def test_rank_accepts_yuma_with_se_count_mismatch():
