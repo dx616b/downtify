@@ -280,6 +280,10 @@ def _normalize_tag_loose(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
+def _strip_parentheticals(text: str) -> str:
+    return re.sub(r'\s+', ' ', re.sub(r'\([^)]*\)', ' ', text)).strip()
+
+
 def _titles_align(expected: str, from_file: str) -> bool:
     title_n = _normalize_tag_loose(expected)
     file_title_n = _normalize_tag_loose(from_file)
@@ -295,9 +299,18 @@ def _titles_align(expected: str, from_file: str) -> bool:
     # mix label ("Song (… Rework Radio Edit)"). Compare mix-stripped cores.
     exp_core = _normalize_tag_loose(strip_mix_suffix(expected))
     file_core = _normalize_tag_loose(strip_mix_suffix(from_file))
-    if not exp_core or not file_core:
+    if exp_core and file_core and exp_core == file_core:
+        return True
+    # Parenthetical hooks can differ slightly: "(Se Se Se Se)" vs "(Se Se Se)".
+    exp_bare = _normalize_tag_loose(
+        _strip_parentheticals(strip_mix_suffix(expected))
+    )
+    file_bare = _normalize_tag_loose(
+        _strip_parentheticals(strip_mix_suffix(from_file))
+    )
+    if not exp_bare or not file_bare:
         return False
-    return exp_core == file_core
+    return exp_bare == file_bare
 
 
 def _artist_lists_align(expected: list[str], actual: list[str]) -> bool:

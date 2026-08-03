@@ -191,6 +191,26 @@ def test_titles_align_edit_vs_rework_radio_edit():
     })
 
 
+def test_titles_align_se_count_mismatch_in_parenthetical():
+    assert spotify_aligns_with_file_tags({
+        'spotify_name': 'Yuma (Se Se Se Se) - Francis Mercier Remix',
+        'spotify_artists': [
+            'Miishu',
+            'Emmanuel Jal',
+            'Francis Mercier',
+            'Nyadollar',
+        ],
+        'name': 'Yuma (Se Se Se) - Francis Mercier Remix',
+        'artists': [
+            'Miishu',
+            'Emmanuel Jal',
+            'Nyadollar',
+            'Francis Mercier',
+        ],
+        'library_from_tags': True,
+    })
+
+
 def test_verify_accepts_edit_vs_rework_radio_edit_tags(
     monkeypatch, tmp_path: Path
 ) -> None:

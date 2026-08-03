@@ -20,7 +20,6 @@ from .track_tag_match import (
     duration_tolerances_from_settings,
     media_duration_matches_mix_variant,
     media_duration_matches_song,
-    named_remixer,
     normalize_search_keywords,
     remote_text_unacceptable,
     snapshot_spotify_metadata,
@@ -538,7 +537,11 @@ def _alnum_only(text: str) -> str:
 
 
 def _primary_title(title: str) -> str:
+    """Core title for basename matching (mix labels and parentheticals removed)."""
     text = strip_mix_suffix(str(title or '').strip())
+    # Drop hook/parenthetical noise: "Yuma (Se Se Se Se)" → "Yuma".
+    text = re.sub(r'\([^)]*\)', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
     if ' - ' in text:
         head = text.split(' - ', 1)[0].strip()
         if head:
@@ -582,37 +585,28 @@ def _discard_mismatched_download(path: Path) -> None:
 
 
 def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
-    """Build a single Soulseek keyword query for *song*.
+    """Build a single Soulseek keyword query from Spotify artists + title.
 
-    Soulseek matches are AND over tokens, so one well-chosen query beats a
-    cascade of progressively looser searches. Use the primary artist plus the
-    mix-stripped title; append a named remixer when present; append album only
-    when the title is too short to stand alone.
+    Use the playlist metadata as-is (all credited artists and the full track
+    name). Only normalize punctuation — do not invent shorter/stripped
+    variants. Append album when the title alone is too short to disambiguate.
     """
     artists = [
         str(a).strip()
         for a in (song.get('artists') or [])
         if str(a).strip()
     ]
-    primary_artist = artists[0] if artists else ''
     raw_title = str(song.get('name') or '').strip()
-    title = _primary_title(raw_title) or raw_title
-    remixer = named_remixer(raw_title)
     album = str(song.get('album_name') or '').strip()
 
-    parts: list[str] = []
-    if primary_artist:
-        parts.append(primary_artist)
-    if title:
-        parts.append(title)
-    # Named remixes are filed under the remixer more often than the original
-    # artist — keep both when they differ.
-    if remixer and _alnum_only(remixer) != _alnum_only(primary_artist):
-        if _alnum_only(remixer) not in _alnum_only(title):
-            parts.append(remixer)
+    parts: list[str] = [*artists]
+    if raw_title:
+        parts.append(raw_title)
 
     title_tokens = [
-        token for token in normalize_search_keywords(title).split() if token
+        token
+        for token in normalize_search_keywords(raw_title).split()
+        if token
     ]
     short_ambiguous = (
         bool(album)
