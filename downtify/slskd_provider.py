@@ -20,6 +20,7 @@ from .track_tag_match import (
     duration_tolerances_from_settings,
     media_duration_matches_mix_variant,
     media_duration_matches_song,
+    named_remixer,
     normalize_search_keywords,
     remote_text_unacceptable,
     snapshot_spotify_metadata,
@@ -584,8 +585,8 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
 
     Soulseek matches are AND over tokens, so one well-chosen query beats a
     cascade of progressively looser searches. Use the primary artist plus the
-    mix-stripped title; append album only when the title is too short to stand
-    alone.
+    mix-stripped title; append a named remixer when present; append album only
+    when the title is too short to stand alone.
     """
     artists = [
         str(a).strip()
@@ -595,6 +596,7 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
     primary_artist = artists[0] if artists else ''
     raw_title = str(song.get('name') or '').strip()
     title = _primary_title(raw_title) or raw_title
+    remixer = named_remixer(raw_title)
     album = str(song.get('album_name') or '').strip()
 
     parts: list[str] = []
@@ -602,6 +604,11 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
         parts.append(primary_artist)
     if title:
         parts.append(title)
+    # Named remixes are filed under the remixer more often than the original
+    # artist — keep both when they differ.
+    if remixer and _alnum_only(remixer) != _alnum_only(primary_artist):
+        if _alnum_only(remixer) not in _alnum_only(title):
+            parts.append(remixer)
 
     title_tokens = [
         token for token in normalize_search_keywords(title).split() if token
