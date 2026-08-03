@@ -163,6 +163,13 @@ _MIX_VARIANT_MARKERS = (
 MIX_VARIANT_REMOTE_SKIP_KEYWORDS = frozenset({'extended'})
 
 
+def spotify_title_has_mix_label(title: str) -> bool:
+    """True when Spotify already names a mix/edit cut (Original, Extended, …)."""
+
+    folded = str(title or '').casefold()
+    return any(marker in folded for marker in _MIX_VARIANT_MARKERS)
+
+
 def strip_mix_suffix(title: str) -> str:
     """Drop trailing mix/edit suffixes for broader audio search queries."""
 
@@ -376,12 +383,16 @@ def media_duration_matches_mix_variant(
     target = song_duration_seconds(song)
     if not target:
         return media_seconds <= _MAX_WHEN_SPOTIFY_DURATION_UNKNOWN
+    # Hard cap: reject audiobook-length outliers.
     if media_seconds > max(720, int(target * 2.5)):
-        return False
-    if media_seconds > int(target * 1.85) + 30:
         return False
     if media_seconds < max(20, int(target * 0.35)) and target >= 60:
         return False
+    # Original Mix (~3–7m) vs Extended Mix (often ~2x) is normal on Soulseek.
+    if media_seconds >= int(target * 0.85) and media_seconds <= int(
+        target * 2.5
+    ):
+        return True
     return abs(media_seconds - target) <= max(
         90, int(target * tolerance_percent / 100)
     )

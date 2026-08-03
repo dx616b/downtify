@@ -91,6 +91,38 @@ def test_rank_accepts_radio_mix_filename_for_radio_mix_track():
     assert len(ranked) == 1
 
 
+def test_rank_accepts_extended_mix_for_original_mix_track():
+    """Spotify Original Mix should keep Extended Mix hits instead of YouTube."""
+    song = {
+        'artists': ['Simone Vitullo', 'David Herrero', 'Shrii'],
+        'name': 'Higher - Original Mix',
+        'duration': 180,
+    }
+    filename = (
+        r'@@huuiq\8\2021\2021 (06) Jun\\'
+        r'Simone Vitullo, David Herrero, Shrii - Higher (Extended Mix).mp3'
+    )
+    responses = [
+        {
+            'username': 'Deees2811',
+            'fileCount': 1,
+            'hasFreeUploadSlot': True,
+            'files': [
+                {
+                    'filename': filename,
+                    'size': 15_000_000,
+                    'length': 360,
+                    'bitRate': 320,
+                },
+            ],
+        },
+    ]
+    assert _contains_keyword(song, filename) is False
+    ranked = _rank_slskd_candidates(song, responses, {})
+    assert len(ranked) == 1
+    assert ranked[0]['username'] == 'Deees2811'
+
+
 def test_rank_accepts_parenthesized_named_remix():
     song = {
         'artists': ['Neyoud', 'Billy Esteban'],

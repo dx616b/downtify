@@ -105,7 +105,15 @@ def test_media_duration_accepts_mix_variant_last_resort_drift():
     song = {'duration': 210}
     assert media_duration_matches_song(song, 260) is False
     assert media_duration_matches_mix_variant(song, 260) is True
-    assert media_duration_matches_mix_variant(song, 380) is False
+    # Original (~3.5m) → Extended (~2x) should pass; 3x+ still rejected.
+    assert media_duration_matches_mix_variant(song, 420) is True
+    assert media_duration_matches_mix_variant(song, 600) is False
+
+
+def test_media_duration_accepts_original_vs_extended_double_length():
+    song = {'duration': 180}
+    assert media_duration_matches_song(song, 360) is False
+    assert media_duration_matches_mix_variant(song, 360) is True
 
 
 def test_media_duration_respects_custom_tolerance_percent():
