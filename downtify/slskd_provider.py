@@ -105,6 +105,8 @@ _PATH_PENALTY_KEYWORDS = (
 _AMBIGUOUS_TITLE_ALNUM_LEN = 5
 _DEFAULT_MATCH_MIN_SCORE = 5
 _STRICT_DURATION_SECONDS = 3
+_SEARCH_TRANSIENT_HTTP = frozenset({429, 502, 503, 504})
+_SEARCH_POST_ATTEMPTS = 4
 
 
 class SlskdClient:
@@ -161,13 +163,46 @@ class SlskdClient:
             'minimumResponseFileCount': 1,
             'minimumPeerUploadSpeed': 1,
         }
-        try:
-            data = self._request('POST', '/api/v0/searches', json_body=body)
-        except Exception as exc:
-            logger.info(
-                'slskd: search POST failed q={!r} err={}', query[:120], exc
-            )
-            return None
+        data: Any = None
+        for attempt in range(_SEARCH_POST_ATTEMPTS):
+            try:
+                data = self._request(
+                    'POST', '/api/v0/searches', json_body=body
+                )
+                break
+            except requests.HTTPError as exc:
+                status = (
+                    exc.response.status_code if exc.response is not None else 0
+                )
+                if (
+                    status in _SEARCH_TRANSIENT_HTTP
+                    and attempt < _SEARCH_POST_ATTEMPTS - 1
+                ):
+                    delay = 2.0 * (attempt + 1)
+                    logger.info(
+                        'slskd: search POST HTTP {} q={!r}, retry {}/{} '
+                        'in {:.0f}s',
+                        status,
+                        query[:120],
+                        attempt + 1,
+                        _SEARCH_POST_ATTEMPTS,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.info(
+                    'slskd: search POST failed q={!r} err={}',
+                    query[:120],
+                    exc,
+                )
+                return None
+            except Exception as exc:
+                logger.info(
+                    'slskd: search POST failed q={!r} err={}',
+                    query[:120],
+                    exc,
+                )
+                return None
         if isinstance(data, dict):
             for key in ('id', 'searchId'):
                 raw = data.get(key)
@@ -592,9 +627,7 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
     variants. Append album when the title alone is too short to disambiguate.
     """
     artists = [
-        str(a).strip()
-        for a in (song.get('artists') or [])
-        if str(a).strip()
+        str(a).strip() for a in (song.get('artists') or []) if str(a).strip()
     ]
     raw_title = str(song.get('name') or '').strip()
     album = str(song.get('album_name') or '').strip()
@@ -612,6 +645,8 @@ def _slskd_search_queries(song: dict[str, Any]) -> list[str]:
         bool(album)
         and len(title_tokens) == 1
         and len(title_tokens[0]) <= 5
+        and normalize_search_keywords(album).casefold()
+        != normalize_search_keywords(raw_title).casefold()
     )
     if short_ambiguous:
         parts.append(album)
