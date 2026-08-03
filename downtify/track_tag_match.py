@@ -383,16 +383,21 @@ def media_duration_matches_mix_variant(
     target = song_duration_seconds(song)
     if not target:
         return media_seconds <= _MAX_WHEN_SPOTIFY_DURATION_UNKNOWN
-    # Hard cap: reject audiobook-length outliers.
     if media_seconds > max(720, int(target * 2.5)):
         return False
     if media_seconds < max(20, int(target * 0.35)) and target >= 60:
         return False
-    # Original Mix (~3–7m) vs Extended Mix (often ~2x) is normal on Soulseek.
-    if media_seconds >= int(target * 0.85) and media_seconds <= int(
-        target * 2.5
-    ):
-        return True
+    spotify_title = str(song.get('spotify_name') or song.get('name') or '')
+    # Spotify already asked for a mix cut (Original/Radio/…) — Extended on
+    # Soulseek is often ~2x and should still match. Do not apply this window
+    # to plain studio titles (YouTube last-resort Extended probes).
+    if spotify_title_has_mix_label(spotify_title):
+        if media_seconds >= int(target * 0.85) and media_seconds <= int(
+            target * 2.5
+        ):
+            return True
+    elif media_seconds > int(target * 1.85) + 30:
+        return False
     return abs(media_seconds - target) <= max(
         90, int(target * tolerance_percent / 100)
     )
