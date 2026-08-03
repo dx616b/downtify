@@ -25,6 +25,7 @@ from .track_tag_match import (
     remote_text_unacceptable,
     snapshot_spotify_metadata,
     spotify_file_tag_mismatch_label,
+    spotify_title_has_mix_label,
     strip_mix_suffix,
     verify_downloaded_file_matches_spotify,
 )
@@ -652,8 +653,12 @@ def _contains_keyword(
     if segments:
         # Immediate parent folder (e.g. "Artist - Album") — not the whole tree.
         haystacks.append(segments[-1])
+    # Spotify "Original Mix" vs Soulseek "Extended Mix" (and similar swaps)
+    # should not be hard-rejected when the playlist already asked for a mix cut.
     skip = (
-        MIX_VARIANT_REMOTE_SKIP_KEYWORDS if allow_mix_variants else frozenset()
+        MIX_VARIANT_REMOTE_SKIP_KEYWORDS
+        if allow_mix_variants or spotify_title_has_mix_label(title)
+        else frozenset()
     )
     return any(
         remote_text_unacceptable(
@@ -910,6 +915,9 @@ def _rank_slskd_candidates(
 ) -> list[dict[str, Any]]:
     """Score and sort all viable files (highest confidence first)."""
     target_duration = _song_duration_seconds(song)
+    mix_duration = allow_mix_variants or spotify_title_has_mix_label(
+        str(song.get('name') or '')
+    )
     ranked: list[dict[str, Any]] = []
 
     for resp in _filter_slskd_responses(responses):
@@ -945,7 +953,7 @@ def _rank_slskd_candidates(
                 filename,
                 file_row,
                 target_duration=target_duration,
-                mix_variant_duration=allow_mix_variants,
+                mix_variant_duration=mix_duration,
                 settings=settings,
             )
             if scored is None:

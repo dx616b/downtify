@@ -172,6 +172,13 @@ _MIX_VARIANT_MARKERS = (
 MIX_VARIANT_REMOTE_SKIP_KEYWORDS = frozenset({'extended'})
 
 
+def spotify_title_has_mix_label(title: str) -> bool:
+    """True when Spotify already names a mix/edit cut (Original, Extended, …)."""
+
+    folded = str(title or '').casefold()
+    return any(marker in folded for marker in _MIX_VARIANT_MARKERS)
+
+
 def named_remixer(title: str) -> str:
     """Return the remixer name from a titled remix, or '' if none."""
 
@@ -401,9 +408,18 @@ def media_duration_matches_mix_variant(
         return media_seconds <= _MAX_WHEN_SPOTIFY_DURATION_UNKNOWN
     if media_seconds > max(720, int(target * 2.5)):
         return False
-    if media_seconds > int(target * 1.85) + 30:
-        return False
     if media_seconds < max(20, int(target * 0.35)) and target >= 60:
+        return False
+    spotify_title = str(song.get('spotify_name') or song.get('name') or '')
+    # Spotify already asked for a mix cut (Original/Radio/…) — Extended on
+    # Soulseek is often ~2x and should still match. Do not apply this window
+    # to plain studio titles (YouTube last-resort Extended probes).
+    if spotify_title_has_mix_label(spotify_title):
+        if media_seconds >= int(target * 0.85) and media_seconds <= int(
+            target * 2.5
+        ):
+            return True
+    elif media_seconds > int(target * 1.85) + 30:
         return False
     return abs(media_seconds - target) <= max(
         90, int(target * tolerance_percent / 100)

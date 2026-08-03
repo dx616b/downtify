@@ -103,10 +103,19 @@ def test_media_duration_accepts_short_track_youtube_padding():
 
 
 def test_media_duration_accepts_mix_variant_last_resort_drift():
-    song = {'duration': 210}
+    song = {'duration': 210, 'name': 'Heat'}
     assert media_duration_matches_song(song, 260) is False
     assert media_duration_matches_mix_variant(song, 260) is True
+    # Studio title → long Extended remains rejected.
     assert media_duration_matches_mix_variant(song, 380) is False
+
+
+def test_media_duration_accepts_original_vs_extended_double_length():
+    song = {'duration': 180, 'name': 'Higher - Original Mix'}
+    assert media_duration_matches_song(song, 360) is False
+    assert media_duration_matches_mix_variant(song, 360) is True
+    assert media_duration_matches_mix_variant(song, 420) is True
+    assert media_duration_matches_mix_variant(song, 600) is False
 
 
 def test_media_duration_respects_custom_tolerance_percent():
