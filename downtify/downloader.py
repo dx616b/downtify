@@ -1724,13 +1724,21 @@ class Downloader:
 def _download_cover(url: str) -> Optional[bytes]:
     if not url:
         return None
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-    except Exception:
-        logger.opt(exception=True).warning('Failed to fetch cover art {}', url)
-        return None
-    return response.content
+    candidates = spotify_mod.spotify_cover_url_candidates(url)
+    last_exc: Optional[Exception] = None
+    for candidate in candidates:
+        try:
+            response = requests.get(candidate, timeout=15)
+            response.raise_for_status()
+        except Exception as exc:
+            last_exc = exc
+            logger.debug('Cover art candidate failed {}: {}', candidate, exc)
+            continue
+        if candidate != candidates[0]:
+            logger.info('Fetched cover art via fallback CDN {}', candidate)
+        return response.content
+    logger.warning('Failed to fetch cover art {}: {}', url, last_exc)
+    return None
 
 
 def _album_track_index_for_tags(

@@ -11,11 +11,32 @@ import json
 import re
 import time
 from typing import Any, Optional
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from loguru import logger
 
 from .telemetry import json_log_blob, redact_sensitive_mapping
+
+# Spotify still emits ``i.scdn.co`` (and related) image hosts in embed /
+# GraphQL payloads, but those names are NXDOMAIN. Same ``/image/<id>`` paths
+# are served from the public spotifycdn edges — try Fastly then Akamai.
+_SPOTIFY_IMAGE_CDN_NETLOCS = (
+    'image-cdn-fa.spotifycdn.com',
+    'image-cdn-ak.spotifycdn.com',
+)
+_SPOTIFY_IMAGE_CDN_NETLOC = _SPOTIFY_IMAGE_CDN_NETLOCS[0]
+_DEAD_SCDN_IMAGE_HOSTS = frozenset({
+    'i.scdn.co',
+    'mosaic.scdn.co',
+    'lineup-images.scdn.co',
+    'charts-images.scdn.co',
+    'seeded-session-images.scdn.co',
+    'thisis-images.scdn.co',
+    'newjams-images.scdn.co',
+    'daily-mix.scdn.co',
+    'mix-images.scdn.co',
+})
 
 SPOTIFY_URL_RE = re.compile(
     r'(?:https?://)?(?:open\.)?spotify\.com/'
@@ -202,6 +223,49 @@ def _embed_row_track(item: dict[str, Any]) -> Optional[dict[str, Any]]:
     return item if isinstance(item, dict) else None
 
 
+def normalize_spotify_cover_url(url: str) -> str:
+    """Rewrite dead ``*.scdn.co`` cover hosts onto the primary spotifycdn edge.
+
+    Preview audio (``p.scdn.co``) is left untouched. Prefer
+    ``spotify_cover_url_candidates`` when fetching so alternate CDNs are tried.
+    """
+    if not url:
+        return ''
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or '').lower()
+    if host not in _DEAD_SCDN_IMAGE_HOSTS:
+        return url
+    if not parsed.path.startswith('/image/'):
+        return url
+    return urlunparse(
+        parsed._replace(scheme='https', netloc=_SPOTIFY_IMAGE_CDN_NETLOC)
+    )
+
+
+def spotify_cover_url_candidates(url: str) -> list[str]:
+    """Ordered cover URLs to try: primary host, then alternate spotifycdn edges."""
+    if not url:
+        return []
+    primary = normalize_spotify_cover_url(url)
+    parsed = urlparse(primary.strip())
+    path = parsed.path or ''
+    if not path.startswith('/image/'):
+        return [primary]
+    host = (parsed.hostname or '').lower()
+    ordered_hosts: list[str] = []
+    if host in _SPOTIFY_IMAGE_CDN_NETLOCS:
+        ordered_hosts.append(host)
+    for netloc in _SPOTIFY_IMAGE_CDN_NETLOCS:
+        if netloc not in ordered_hosts:
+            ordered_hosts.append(netloc)
+    out: list[str] = []
+    for netloc in ordered_hosts:
+        candidate = urlunparse(parsed._replace(scheme='https', netloc=netloc))
+        if candidate not in out:
+            out.append(candidate)
+    return out
+
+
 def _largest_image(sources: list[dict[str, Any]]) -> str:
     if not sources:
         return ''
@@ -209,7 +273,7 @@ def _largest_image(sources: list[dict[str, Any]]) -> str:
     if not sized:
         return ''
     sized.sort(key=lambda s: int(s.get('width') or 0), reverse=True)
-    return sized[0]['url']
+    return normalize_spotify_cover_url(sized[0]['url'])
 
 
 def _cover_url(entity: dict[str, Any]) -> str:
