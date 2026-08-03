@@ -144,10 +144,19 @@ _MIX_SUFFIX_RE = re.compile(
     r'rework(?:\s+radio\s+edit)?|edit)\s*$',
     re.IGNORECASE,
 )
+# Named remix dash: "Yuma (Se Se Se Se) - Francis Mercier Remix".
+_NAMED_REMIX_DASH_RE = re.compile(
+    r'\s*[-–—]\s*(?P<remixer>.+?)\s+remix\s*$',
+    re.IGNORECASE,
+)
 # Trailing parentheticals with mix labels:
 # "Osama (Bruno Be, Ralk Rework Radio Edit)".
 _MIX_PAREN_RE = re.compile(
     r'\s*\([^)]*(?:radio\s+)?(?:mix|edit|rework|remix|version)[^)]*\)\s*$',
+    re.IGNORECASE,
+)
+_NAMED_REMIX_PAREN_RE = re.compile(
+    r'\((?P<remixer>[^)]+?)\s+remix\)\s*$',
     re.IGNORECASE,
 )
 
@@ -163,10 +172,24 @@ _MIX_VARIANT_MARKERS = (
 MIX_VARIANT_REMOTE_SKIP_KEYWORDS = frozenset({'extended'})
 
 
+def named_remixer(title: str) -> str:
+    """Return the remixer name from a titled remix, or '' if none."""
+
+    text = str(title or '').strip()
+    match = _NAMED_REMIX_DASH_RE.search(text)
+    if match:
+        return match.group('remixer').strip()
+    match = _NAMED_REMIX_PAREN_RE.search(text)
+    if match:
+        return match.group('remixer').strip()
+    return ''
+
+
 def strip_mix_suffix(title: str) -> str:
     """Drop trailing mix/edit suffixes for broader audio search queries."""
 
     text = str(title or '').strip()
+    text = _NAMED_REMIX_DASH_RE.sub('', text).strip()
     text = _MIX_PAREN_RE.sub('', text).strip()
     return _MIX_SUFFIX_RE.sub('', text).strip()
 
