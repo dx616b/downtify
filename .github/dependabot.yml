@@ -6,6 +6,19 @@ updates:
       interval: "daily"
     assignees:
       - "dx616b"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "daily"
+    assignees:
+      - "dx616b"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker-compose"
     directory: "/"
@@ -29,3 +42,6 @@ updates:
       - "dx616b"
     exclude-paths:
       - "requirements.txt"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
