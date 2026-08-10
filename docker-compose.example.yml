@@ -1,4 +1,4 @@
-# Production-style Compose for Downtify (slskd + Navidrome-friendly).
+# Production-style Compose for Downtify NG (slskd + Navidrome-friendly).
 #
 # Usage:
 #   cp docker-compose.example.yml docker-compose.yml
@@ -7,12 +7,12 @@
 #   docker compose up -d
 #
 # slskd is not included here — run your existing slskd stack and mount the
-# same host folder to /slskd in Downtify. In Settings → slskd set base URL
+# same host folder to /slskd in Downtify NG. In Settings → slskd set base URL
 # (e.g. http://slskd:5030 on a shared Docker network) and source_dir /slskd.
 
 services:
-  downtify:
-    container_name: downtify
+  downtify-ng:
+    container_name: downtify-ng
     image: dx616b/downtify:latest
     restart: unless-stopped
     ports:
@@ -22,9 +22,9 @@ services:
     volumes:
       - /path/to/music/downloads:/downloads
       - /path/to/music/slskd:/slskd
-      - downtify_data:/data
+      - downtify_ng_data:/data
       # Optional: mount cookies instead of uploading in Settings → YouTube cookies
       # - /path/to/cookies.txt:/data/youtube-cookies.txt:ro
 
 volumes:
-  downtify_data:
+  downtify_ng_data:
