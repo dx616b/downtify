@@ -12,7 +12,7 @@
     "axios": "^1.19.0",
     "daisyui": "^4.7.2",
     "uuid": "^11.1.1",
-    "vue": "^3.5.40",
+    "vue": "^3.5.41",
     "vue-router": "^4.2.4"
   },
   "devDependencies": {
